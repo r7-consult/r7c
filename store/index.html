@@ -55,6 +55,12 @@
 				</div>
 			</div>
 			<div class="header_actions">
+				<button id="btn_reload" class="btn_icon" type="button" aria-label="Reload" title="Reload">
+					<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+						<path d="M20 11a8 8 0 1 1-2.34-5.66" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+						<path d="M20 4v6h-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+					</svg>
+				</button>
 				<button id="btn_license" class="btn_icon" type="button" aria-label="License" title="License">
 					<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
 						<path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
@@ -221,6 +227,16 @@
 		</div>
 		<div id="div_error" class="error_main hidden"><div class="loader_background"></div></div>
 		<div id="loader-container" class="asc-loader-container div_loader"><div class="loader_background"></div></div>
+		<div id="remove_confirm_overlay" class="remove_confirm_overlay hidden" data-testid="remove-confirm-overlay">
+			<div class="remove_confirm_modal" role="dialog" aria-modal="true" aria-labelledby="remove_confirm_title">
+				<div id="remove_confirm_title" class="remove_confirm_title">Remove plugin</div>
+				<div id="remove_confirm_text" class="remove_confirm_text">Are you sure you want to remove this plugin?</div>
+				<div class="remove_confirm_actions">
+					<button id="btn_remove_confirm_cancel" class="btn_action" type="button">No</button>
+					<button id="btn_remove_confirm_ok" class="btn_action" type="button">Yes</button>
+				</div>
+			</div>
+		</div>
 		<div id="div_rating_git" class="hidden"></div>
 
 		<div id="r7c-flyout" class="r7c-fly-button" role="button" aria-label="Open R7 Consult" tabindex="0">
@@ -230,7 +246,7 @@
 		<div id="welcome-popup-overlay" class="welcome-popup-overlay hidden" data-testid="welcome-popup-overlay">
 			<div class="welcome-popup-modal" role="dialog" aria-modal="true" aria-labelledby="welcome-popup-title">
 				<div class="welcome-popup-header">
-					<h3 id="welcome-popup-title" class="welcome-popup-title">{r7c}.code Менеджер плагинов Р7</h3>
+					<h3 id="welcome-popup-title" class="welcome-popup-title">{r7c} Менеджер плагинов Р7</h3>
 					<button id="welcome-popup-close" class="welcome-popup-close" type="button" aria-label="Close">×</button>
 				</div>
 				<div class="welcome-popup-tabs" role="tablist" aria-label="Welcome tabs">

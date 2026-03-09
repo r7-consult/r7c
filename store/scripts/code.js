@@ -73,6 +73,7 @@ let popupLicenseLoaded = false;
 let selectedLicenseLoaded = false;
 let selectedPluginLicenseKey = '';
 let selectedPluginLicenseSource = '';
+let pendingRemoveAction = null;
 const r7cFlyoutLastSeenDateKey = 'r7c_flyout_last_seen_date';
 const fallbackWelcomeMarkdown = [
 	'# Добро пожаловать в R7 Plugin Manager',
@@ -230,10 +231,65 @@ function isCommercialPluginConfig(pluginConfig) {
 	if (!pluginConfig)
 		return false;
 	let variation = (pluginConfig.variations && pluginConfig.variations[0]) ? pluginConfig.variations[0] : null;
+	let store = variation && variation.store ? variation.store : null;
+	if (store && Object.prototype.hasOwnProperty.call(store, 'commercial')) {
+		let marker = store.commercial;
+		if (marker === true)
+			return true;
+		if (typeof marker === 'string' && marker.trim()) {
+			if (isCommercialType(marker))
+				return true;
+			if (isValidExternalUrl(marker))
+				return true;
+		}
+		if (marker && typeof marker === 'object') {
+			if (marker.enabled === true)
+				return true;
+			if (isValidExternalUrl(marker.url) || isValidExternalUrl(marker.link) || isValidExternalUrl(marker.landingUrl) || isValidExternalUrl(marker.website))
+				return true;
+		}
+	}
 	let typeValue = variation && variation.store && typeof variation.store.type === 'string'
 		? variation.store.type
 		: pluginConfig.type;
 	return isCommercialType(typeValue);
+}
+
+function isValidExternalUrl(url) {
+	if (!url || typeof url !== 'string')
+		return false;
+	try {
+		let parsed = new URL(url, window.location.href);
+		return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+	} catch (e) {
+		return false;
+	}
+}
+
+function getCommercialLandingUrl(pluginConfig) {
+	if (!pluginConfig)
+		return '';
+	let variation = (pluginConfig.variations && pluginConfig.variations[0]) ? pluginConfig.variations[0] : null;
+	let store = variation && variation.store ? variation.store : null;
+	let candidates = [];
+
+	if (store) {
+		if (typeof store.commercial === 'string') {
+			candidates.push(store.commercial);
+		} else if (store.commercial && typeof store.commercial === 'object') {
+			candidates.push(store.commercial.url, store.commercial.link, store.commercial.landingUrl, store.commercial.website);
+		}
+		candidates.push(store.url, store.link, store.website, store.landingUrl);
+	}
+
+	candidates.push(pluginConfig.commercialUrl, pluginConfig.website, pluginConfig.homepage);
+
+	for (let i = 0; i < candidates.length; i++) {
+		if (isValidExternalUrl(candidates[i]))
+			return candidates[i];
+	}
+
+	return '';
 }
 
 async function ensureCommercialAccess(pluginConfig) {
@@ -282,17 +338,51 @@ function renderMarkdown(markdownText) {
 	if (!markdownText)
 		return '';
 	try {
+		let settings = getMarkedSetting();
+		settings.headerIds = false;
+		settings.headerPrefix = '';
+		settings.mangle = false;
 		if (window.marked && typeof window.marked.parse === 'function')
-			return window.marked.parse(markdownText);
+			return window.marked.parse(markdownText, settings);
 		if (typeof window.marked === 'function')
-			return window.marked(markdownText);
+			return window.marked(markdownText, settings);
 	} catch (e) {
 	}
 	return markdownText.replace(/\n/g, '<br>');
 }
 
+function hideRemoveConfirm() {
+	if (elements.removeConfirmOverlay)
+		elements.removeConfirmOverlay.classList.add('hidden');
+	pendingRemoveAction = null;
+}
+
+function requestRemoveConfirmation(pluginName, onConfirm) {
+	if (!elements.removeConfirmOverlay || !elements.removeConfirmText) {
+		if (window.confirm(getTranslated(messages.removeConfirmPrompt)))
+			onConfirm();
+		return;
+	}
+	pendingRemoveAction = onConfirm;
+	let label = pluginName ? ('«' + pluginName + '»') : getTranslated('this plugin');
+	elements.removeConfirmText.innerHTML = getTranslated(messages.removeConfirmPrompt) + ' ' + label;
+	elements.removeConfirmOverlay.classList.remove('hidden');
+}
+
 async function fetchMarkdownWithFallback(fileName, fallbackMarkdown) {
 	let cacheBuster = 'v=' + Date.now();
+	if (isLocal) {
+		try {
+			let localUrl = contentLocalBase + fileName + '?' + cacheBuster;
+			let localResponse = await fetch(localUrl, { cache: 'no-cache' });
+			if (localResponse.ok) {
+				let localText = await localResponse.text();
+				if (localText && localText.trim())
+					return localText;
+			}
+		} catch (e) {
+		}
+	}
 	for (let i = 0; i < contentRemoteBases.length; i++) {
 		let remoteUrl = contentRemoteBases[i] + fileName + '?' + cacheBuster;
 		try {
@@ -318,6 +408,58 @@ async function fetchMarkdownWithFallback(fileName, fallbackMarkdown) {
 	}
 
 	return fallbackMarkdown;
+}
+
+function isAbsolutePluginUrl(value) {
+	return typeof value === 'string' && /^https?:\/\//i.test(value);
+}
+
+function normalizePluginBaseUrl(value) {
+	let url = String(value || '');
+	if (url && url[url.length - 1] !== '/')
+		url += '/';
+	return url;
+}
+
+function buildPluginBaseCandidates(pluginName, baseUrl) {
+	if (!pluginName)
+		return [];
+	if (isAbsolutePluginUrl(pluginName))
+		return [normalizePluginBaseUrl(pluginName)];
+	let cleanName = String(pluginName).replace(/^\/+/, '');
+	let normalizedBase = normalizePluginBaseUrl(baseUrl);
+	let candidates = [
+		normalizedBase + 'sdkjs-plugins/content/' + cleanName + '/',
+		normalizedBase + 'content/' + cleanName + '/',
+		normalizedBase + cleanName + '/'
+	];
+	let unique = [];
+	candidates.forEach(function(candidate) {
+		if (unique.indexOf(candidate) === -1)
+			unique.push(candidate);
+	});
+	return unique;
+}
+
+function loadPluginConfigByCandidates(candidates, onSuccess, onFail) {
+	let lastUrl = '';
+	(function tryLoad(index) {
+		if (index >= candidates.length) {
+			onFail(lastUrl);
+			return;
+		}
+		let base = normalizePluginBaseUrl(candidates[index]);
+		let confUrl = base + 'config.json';
+		lastUrl = confUrl;
+		makeRequest(confUrl, 'GET', null, null, true).then(
+			function(response) {
+				onSuccess(response, base, confUrl);
+			},
+			function() {
+				tryLoad(index + 1);
+			}
+		);
+	})(0);
 }
 
 async function fetchFirstMarkdown(candidates, fallbackMarkdown) {
@@ -502,7 +644,10 @@ const messages = {
 	versionWarning: 'This plugin will only work in a newer version of the editor.',
 	linkManually: 'Install plugin manually',
 	linkPR: 'Submit your own plugin',
-	licensePlaceholder: 'Текст лицензии будет добавлен после получения от Марии.'
+	learnMore: 'Learn more',
+	licensePlaceholder: 'Текст лицензии будет добавлен после получения от Марии.',
+	removeConfirmPrompt: 'Are you sure you want to remove this plugin?',
+	removeConfirmTitle: 'Remove plugin'
 };
 const isIE = (navigator.userAgent.toLowerCase().indexOf("msie") > -1 ||
 				navigator.userAgent.toLowerCase().indexOf("trident") > -1 ||
@@ -556,13 +701,12 @@ window.Asc = {
 
 const pos = location.href.indexOf('store/index.html'); // position for make substring
 const ioUrl = location.href.substring(0, pos);         // real IO URL
-const configUrl = ( isLocal ? OOMarketplaceUrl : location.href.substring(0, pos) ) + 'store/config.json'; // url to config.json (it's for desktop. we should use remote config)
+const configUrl = (isLocal ? OOMarketplaceUrl : location.href.substring(0, pos)) + 'store/config.json';
 
 // get translation file
 getTranslation();
 // fetch all plugins from config
-if (!isLocal)
-	fetchAllPlugins(true, false);
+fetchAllPlugins(true, false);
 
 window.onload = async function() {
 	let rule = '\n.asc-plugin-loader{background-color:' + (themeType == 'light' ? '#ffffff' : '#333333') + ';padding: 10px;display: flex;justify-content: center;align-items: center;border-radius: 5px;}\n'
@@ -599,6 +743,18 @@ window.onload = async function() {
 		elements.btnLicense.onclick = function() {
 			trackGoal('license_click');
 			showWelcomePopup('license');
+		};
+	}
+	if (elements.btnReload) {
+		elements.btnReload.onclick = function() {
+			trackGoal('reload_click');
+			toogleLoader(true, 'Loading');
+			hasAllPluginsData = false;
+			allPlugins = [];
+			catFiltred = [];
+			founded = [];
+			fetchAllPlugins(true, false);
+			sendMessage({type: 'getInstalled', updateInstalled: true}, '*');
 		};
 	}
 	if (elements.btnSettingsClose) {
@@ -647,10 +803,29 @@ window.onload = async function() {
 				hideWelcomePopup();
 		});
 	}
+	if (elements.removeConfirmOverlay) {
+		elements.removeConfirmOverlay.addEventListener('click', function(event) {
+			if (event.target === elements.removeConfirmOverlay)
+				hideRemoveConfirm();
+		});
+	}
+	if (elements.btnRemoveConfirmCancel)
+		elements.btnRemoveConfirmCancel.onclick = hideRemoveConfirm;
+	if (elements.btnRemoveConfirmOk) {
+		elements.btnRemoveConfirmOk.onclick = function() {
+			let action = pendingRemoveAction;
+			hideRemoveConfirm();
+			if (typeof action === 'function')
+				action();
+		};
+	}
 	document.addEventListener('keydown', function(event) {
 		if (event.key === 'Escape' && elements.welcomePopupOverlay && !elements.welcomePopupOverlay.classList.contains('hidden')) {
 			hideWelcomePopup();
+			return;
 		}
+		if (event.key === 'Escape' && elements.removeConfirmOverlay && !elements.removeConfirmOverlay.classList.contains('hidden'))
+			hideRemoveConfirm();
 	});
 	bindPopupLinkHandling();
 	setupR7cFlyout();
@@ -1029,11 +1204,17 @@ function initElemnts() {
 	// elements.close = document.getElementById('close');
 	elements.divHeader = document.getElementById('div_header');
 	elements.btnSettings = document.getElementById('btn_settings');
+	elements.btnReload = document.getElementById('btn_reload');
 	elements.btnLicense = document.getElementById('btn_license');
 	elements.settingsModal = document.getElementById('settings_modal');
 	elements.btnSettingsClose = document.getElementById('btn_settings_close');
 	elements.btnThemeLight = document.getElementById('btn_theme_light');
 	elements.btnThemeDark = document.getElementById('btn_theme_dark');
+	elements.removeConfirmOverlay = document.getElementById('remove_confirm_overlay');
+	elements.removeConfirmTitle = document.getElementById('remove_confirm_title');
+	elements.removeConfirmText = document.getElementById('remove_confirm_text');
+	elements.btnRemoveConfirmCancel = document.getElementById('btn_remove_confirm_cancel');
+	elements.btnRemoveConfirmOk = document.getElementById('btn_remove_confirm_ok');
 	elements.r7cFlyout = document.getElementById('r7c-flyout');
 	elements.r7cFlyoutLogo = document.getElementById('r7c-flyout-logo');
 	elements.welcomePopupOverlay = document.getElementById('welcome-popup-overlay');
@@ -1059,6 +1240,7 @@ function initElemnts() {
 	elements.btnUpdate = document.getElementById('btn_update');
 	elements.btnRemove = document.getElementById('btn_remove');
 	elements.btnInstall = document.getElementById('btn_install');
+	elements.btnLearnMore = document.getElementById('btn_learn_more');
 	elements.spanSelectedDescr = document.getElementById('span_selected_description');
 	elements.linkPlugin = document.getElementById('link_plugin');
 	elements.divScreen = document.getElementById("div_selected_image");
@@ -1107,12 +1289,13 @@ function getAllPluginsData(bFirstRender, bshowMarketplace) {
 		if (typeof plugin !== 'object') {
 			plugin.name = plugin;
 		}
-		let pluginUrl = (plugin.name.indexOf(":/\/") == -1) ? url + 'sdkjs-plugins/content/' + plugin.name + '/' : plugin.name;
-		let confUrl = pluginUrl + 'config.json';
-		makeRequest(confUrl, 'GET', null, null, true).then(
-			function(response) {
+		let pluginCandidates = buildPluginBaseCandidates(plugin.name, url);
+		loadPluginConfigByCandidates(
+			pluginCandidates,
+			function(response, pluginUrl, confUrl) {
 				let config = JSON.parse(response);
-				config.url = confUrl;
+				config.url = pluginUrl;
+				config.configUrl = confUrl;
 				config.baseUrl = pluginUrl;
 				arr[i] = config;
 				config.languages = [ getTranslated('English') ];
@@ -1147,10 +1330,10 @@ function getAllPluginsData(bFirstRender, bshowMarketplace) {
 				if (!count)
 					endPluginsDataLoading(bFirstRender, bshowMarketplace, Unloaded);
 			},
-			function(err) {
+			function(confUrl) {
 				count--;
 				Unloaded.push(i);
-				createError(new Error('Problem with loading plugin config.\nConfig: ' + confUrl));
+				console.warn('Problem with loading plugin config:', confUrl);
 				if (!count)
 					endPluginsDataLoading(bFirstRender, bshowMarketplace, Unloaded);
 			}
@@ -1244,31 +1427,6 @@ function showListofPlugins(bAll, sortedArr) {
 	$('.div_notification').remove();
 	$('.div_item').remove();
 	let arr = (sortedArr ? sortedArr : (bAll ? allPlugins : installedPlugins));
-
-	// получаем список backup плагинов
-	if (!bAll && isLocal) {
-		var _pluginsTmp = JSON.parse(window["AscDesktopEditor"]["GetBackupPlugins"]());
-
-		if (_pluginsTmp.length) {
-			var len = _pluginsTmp[0]["pluginsData"].length;
-			for (var i = 0; i < len; i++) {
-				let plugin = _pluginsTmp[0]["pluginsData"][i];
-				plugin.baseUrl = _pluginsTmp[0]["url"] + plugin.guid.replace('asc.', '') + '/';
-
-				installed = findPlugin(false, plugin.guid);
-
-				if (!installed) {
-					installedPlugins.push({
-						"baseUrl": _pluginsTmp[0]["url"],
-						"guid": plugin.guid,
-						"canRemoved": true,
-						"obj": plugin,
-						"removed": true
-					});
-				}
-			}
-		}
-	}
 
 	if (arr.length) {
 		arr.forEach(function(plugin) {
@@ -1382,14 +1540,20 @@ function createPluginDiv(plugin, bInstalled) {
 	let additional = bNotAvailable ? 'disabled title="' + getTranslated(messages.versionWarning) + '"'  : '';
 	let versionLabel = plugin.version ? ('v' + plugin.version) : '';
 	let typeLabel = getPluginTypeLabel(plugin, variation);
+	let isCommercial = isCommercialPluginConfig(plugin);
 	let isInstalled = (installed && !bRemoved);
-	let statusText = getTranslated(isInstalled ? 'Installed' : 'Not installed');
-	let statusClass = 'card_status' + (isInstalled ? ' status_installed' : '');
-	let actionHtml = isInstalled
-		? (installed.canRemoved
-			? '<button class="btn-text-default btn_item btn_remove" onclick="onClickRemove(event.target, event)" ' + (bNotAvailable ? "dataDisabled=\"disabled\"" : "") +'>' + getTranslated("Remove") + '</button>'
-			: '<div class="card_spacer"></div>')
-		: '<button class="btn_item btn-text-default btn_install" onclick="onClickInstall(event.target, event)"' + additional + '>'  + getTranslated("Install") + '</button>';
+	let statusText = isCommercial ? getTranslated('Commercial') : getTranslated(isInstalled ? 'Installed' : 'Not installed');
+	let statusClass = 'card_status' + (isInstalled ? ' status_installed' : '') + (isCommercial ? ' status_commercial' : '');
+	let actionHtml = '';
+	if (isCommercial) {
+		actionHtml = '<button class="btn_item btn-text-default btn_install btn_learn_more" onclick="onClickLearnMore(event.target, event)">' + getTranslated(messages.learnMore) + '</button>';
+	} else {
+		actionHtml = isInstalled
+			? (installed.canRemoved
+				? '<button class="btn-text-default btn_item btn_remove" onclick="onClickRemove(event.target, event)" ' + (bNotAvailable ? "dataDisabled=\"disabled\"" : "") +'>' + getTranslated("Remove") + '</button>'
+				: '<div class="card_spacer"></div>')
+			: '<button class="btn_item btn-text-default btn_install" onclick="onClickInstall(event.target, event)"' + additional + '>'  + getTranslated("Install") + '</button>';
+	}
 
 	let template = '<div class="div_image" style="background: ' + bg + '">' +
 						'<img id="img_'+plugin.guid+'" class="plugin_icon" style="display:none" data-guid="' + plugin.guid + '" src="' + getImageUrl(plugin.guid, false, true, ('img_' + plugin.guid) ) + '">' +
@@ -1448,6 +1612,14 @@ function showRating() {
 async function onClickInstall(target, event) {
 	// click install button
 	event.stopImmediatePropagation();
+	let guid = target.parentNode.parentNode.getAttribute('data-guid');
+	let plugin = findPlugin(true, guid);
+	let installed = findPlugin(false, guid);
+	let sourcePlugin = plugin || (installed ? installed.obj : null);
+	if (isCommercialPluginConfig(sourcePlugin)) {
+		onClickLearnMore(target, event);
+		return;
+	}
 	// click install button
 	// we should do that because we have some problem when desktop is loading plugin
 	if (isLocal) {
@@ -1456,14 +1628,12 @@ async function onClickInstall(target, event) {
 		clearTimeout(timeout);
 		timeout = setTimeout(toogleLoader, 200, true, "Installation");
 	}
-	let guid = target.parentNode.parentNode.getAttribute('data-guid');
-	let plugin = findPlugin(true, guid);
-	let installed = findPlugin(false, guid);
 	if (!plugin && !installed) {
 		// if we are here if means that plugin tab is opened, plugin is uninstalled and we don't have internet connection
 		sendMessage( { type : "showButton", show : false } );
 		onClickBack();
 		toogleLoader(false);
+		return;
 	}
 	let message = {
 		type : 'install',
@@ -1493,6 +1663,12 @@ async function onClickInstall(target, event) {
 
 async function onClickUpdate(target) {
 	// click update button
+	let guid = target.parentElement.parentElement.parentElement.getAttribute('data-guid');
+	let plugin = findPlugin(true, guid);
+	if (isCommercialPluginConfig(plugin)) {
+		onClickLearnMore(target, null);
+		return;
+	}
 	// we should do that because we have some problem when desktop is loading plugin
 	if (isLocal) {
 		toogleLoader(true, 'Updating');
@@ -1500,8 +1676,6 @@ async function onClickUpdate(target) {
 		clearTimeout(timeout);
 		timeout = setTimeout(toogleLoader, 200, true, "Updating");
 	}
-	let guid = target.parentElement.parentElement.parentElement.getAttribute('data-guid');
-	let plugin = findPlugin(true, guid);
 	updateCount++;
 	let message = {
 		type : 'update',
@@ -1530,24 +1704,31 @@ async function onClickUpdate(target) {
 
 function onClickRemove(target, event) {
 	event.stopImmediatePropagation();
-	// click remove button
-	if (isLocal) {
-		toogleLoader(true, 'Removal');
-	} else {
-		clearTimeout(timeout);
-		timeout = setTimeout(toogleLoader, 200, true, "Removal");
-	}
 	let guid = target.parentNode.parentNode.getAttribute('data-guid');
-	let message = {
-		type : 'remove',
-		guid : guid,
-		backup : needBackupPlugin(guid)
-	};
-	trackGoal('plugin_remove_click', {
-		plugin_guid: guid,
-		plugin_name: getPluginLabelByGuid(guid)
+	let plugin = findPlugin(true, guid);
+	if (isCommercialPluginConfig(plugin)) {
+		onClickLearnMore(target, event);
+		return;
+	}
+	let pluginName = getPluginLabelByGuid(guid);
+	requestRemoveConfirmation(pluginName, function() {
+		if (isLocal) {
+			toogleLoader(true, 'Removal');
+		} else {
+			clearTimeout(timeout);
+			timeout = setTimeout(toogleLoader, 200, true, 'Removal');
+		}
+		let message = {
+			type : 'remove',
+			guid : guid,
+			backup : needBackupPlugin(guid)
+		};
+		trackGoal('plugin_remove_click', {
+			plugin_guid: guid,
+			plugin_name: pluginName
+		});
+		sendMessage(message);
 	});
-	sendMessage(message);
 };
 
 function needBackupPlugin(guid) {
@@ -1566,18 +1747,12 @@ async function onClickUpdateAll() {
 		pending_updates: allPlugins.filter(function(el) { return el.bHasUpdate; }).length
 	});
 	let arr = allPlugins.filter(function(el) {
-		return el.bHasUpdate;
+		return el.bHasUpdate && !isCommercialPluginConfig(el);
 	});
-	let hasCommercial = arr.some(function(el) {
-		return isCommercialPluginConfig(el);
-	});
-	if (hasCommercial) {
-		let gateResult = await ensureCommercialAccess(arr[0]);
-		if (gateResult && gateResult.allowed === false) {
-			toogleLoader(false);
-			elements.btnUpdateAll.classList.remove('hidden');
-			return;
-		}
+	if (!arr.length) {
+		toogleLoader(false);
+		checkNoUpdated(true);
+		return;
 	}
 	updateCount = arr.length;
 	arr.forEach(function(plugin) {
@@ -1607,6 +1782,7 @@ function onClickItem() {
 
 	let installed = findPlugin(false, guid);
 	let plugin = findPlugin(true, guid);
+	let isCommercial = isCommercialPluginConfig(plugin || (installed ? installed.obj : null));
 	let discussionUrl = plugin ? plugin.discussionUrl : null;
 	
 	if (plugin && plugin.rating) {
@@ -1621,6 +1797,10 @@ function onClickItem() {
 		elements.discussionLink.classList.add('hidden');
 		if (!discussionCount)
 			elements.divRatingLink.setAttribute('title', getTranslated('No disscussion page for this plugin.'));
+	}
+	if (isCommercial) {
+		elements.divVotes.classList.add('hidden');
+		elements.discussionLink.classList.add('hidden');
 	}
 
 	if ( !plugin || ( isLocal && installed && plugin.baseUrl.includes('file:') ) ) {
@@ -1732,18 +1912,27 @@ function onClickItem() {
 		elements.divReadme.classList.add('hidden');
 	}
 	
-	if (discussionUrl)
+	if (discussionUrl && !isCommercial)
 		elements.discussionLink.setAttribute('href', discussionUrl);
 	else
 		elements.discussionLink.removeAttribute('href');
 
-	if (bHasUpdate) {
+	if (bHasUpdate && !isCommercial) {
 		elements.btnUpdate.classList.remove('hidden');
 	} else {
 		elements.btnUpdate.classList.add('hidden');
 	}
 
-	if (installed && !installed.removed) {
+	if (isCommercial) {
+		elements.btnRemove.classList.add('hidden');
+		elements.btnInstall.classList.add('hidden');
+		if (elements.btnLearnMore) {
+			elements.btnLearnMore.classList.remove('hidden');
+			elements.btnLearnMore.onclick = function(event) {
+				onClickLearnMore(event.currentTarget, event);
+			};
+		}
+	} else if (installed && !installed.removed) {
 		if (installed.canRemoved) {
 			elements.btnRemove.classList.remove('hidden');
 		} else {
@@ -1753,7 +1942,12 @@ function onClickItem() {
 	} else {
 		elements.btnRemove.classList.add('hidden');
 		elements.btnInstall.classList.remove('hidden');
+		if (elements.btnLearnMore)
+			elements.btnLearnMore.classList.add('hidden');
 	}
+
+	if (!isCommercial && elements.btnLearnMore)
+		elements.btnLearnMore.classList.add('hidden');
 
 	if (pluginDiv.lastChild.lastChild.hasAttribute('disabled')) {// || pluginDiv.lastChild.lastChild.hasAttribute('dataDisabled')) {
 		elements.btnInstall.setAttribute('disabled','');
@@ -1832,6 +2026,8 @@ function createNotification(text, err) {
 	spanNot.className = 'span_notification text-secondary';
 	spanNot.innerHTML = getTranslated(text);
 	div.appendChild(spanNot);
+	if (text === 'Nothing was found for this query.')
+		div.classList.add('div_notification_empty');
 	elements.divMain.appendChild(div);
 };
 
@@ -2006,9 +2202,19 @@ function onTranslate() {
 		elements.btnLicense.setAttribute('aria-label', getTranslated('License'));
 	}
 	elements.btnInstall.innerHTML = getTranslated('Install');
+	if (elements.btnLearnMore)
+		elements.btnLearnMore.innerHTML = getTranslated(messages.learnMore);
 	elements.btnRemove.innerHTML = getTranslated('Remove');
 	elements.btnUpdate.innerHTML = getTranslated('Update');
 	elements.btnUpdateAll.innerHTML = getTranslated('Update All');
+	if (elements.removeConfirmTitle)
+		elements.removeConfirmTitle.innerHTML = getTranslated(messages.removeConfirmTitle);
+	if (elements.removeConfirmText)
+		elements.removeConfirmText.innerHTML = getTranslated(messages.removeConfirmPrompt);
+	if (elements.btnRemoveConfirmCancel)
+		elements.btnRemoveConfirmCancel.innerHTML = getTranslated('No');
+	if (elements.btnRemoveConfirmOk)
+		elements.btnRemoveConfirmOk.innerHTML = getTranslated('Yes');
 	elements.inpSearch.placeholder = getTranslated('Search plugins') + '...';
 	document.getElementById('lbl_header').innerHTML = 'R7 Consult';
 	document.getElementById('lbl_subtitle').innerHTML = 'Каталог и установка плагинов';
@@ -2032,6 +2238,7 @@ function onTranslate() {
 	document.getElementById('span_categories').innerHTML = getTranslated('Categories');
 	document.getElementById('opt_all').innerHTML = getTranslated('All categories');
 	document.getElementById('opt_rec').innerHTML = getTranslated('Recommended');
+	document.getElementById('opt_commercial').innerHTML = getTranslated('Commercial');
 	document.getElementById('opt_dev').innerHTML = getTranslated('Developer tools');
 	document.getElementById('opt_work').innerHTML = getTranslated('Work');
 	document.getElementById('opt_enter').innerHTML = getTranslated('Entertainment');
@@ -2040,6 +2247,10 @@ function onTranslate() {
 	document.getElementById('discussion_link').innerHTML = getTranslated('Click to rate');
 	if (elements.btnSettings)
 		elements.btnSettings.title = getTranslated('Settings');
+	if (elements.btnReload) {
+		elements.btnReload.title = getTranslated('Reload');
+		elements.btnReload.setAttribute('aria-label', getTranslated('Reload'));
+	}
 	if (elements.btnSettingsClose)
 		elements.btnSettingsClose.title = getTranslated('Close');
 	if (elements.settingsTitle)
@@ -2196,6 +2407,8 @@ function getImageUrl(guid, bNotForStore, bSetSize, id) {
 					img.setAttribute('src', imageUrl);
 					img.onload = function () {
 						let icon = document.getElementById(id);
+						if (!icon)
+							return;
 						icon.style.width = ( (img.width/scale.value) >> 0 ) + 'px';
 						icon.style.height = ( (img.height/scale.value) >> 0 ) + 'px';
 						icon.style.display = '';
@@ -2356,7 +2569,12 @@ function filterByCategory(category) {
 	let arr;
 	if (category != "all") {
 		arr = plugins.filter(function(plugin) {
-			let variation = plugin.variations ? plugin.variations[0] : plugin.obj.variations[0];
+			let pluginObj = plugin.variations ? plugin : plugin.obj;
+			if (!pluginObj || !pluginObj.variations || !pluginObj.variations[0])
+				return false;
+			if (category === 'commercial')
+				return isCommercialPluginConfig(pluginObj);
+			let variation = pluginObj.variations[0];
 			let arrCat = (variation.store && variation.store.categories) ? variation.store.categories : [];
 			return arrCat.includes(category);
 		});
@@ -2389,6 +2607,36 @@ function changeAfterInstallOrRemove(bInstall, guid, bHasLocal) {
 		return;
 	let btn = card.querySelector('.btn_item');
 	let status = card.querySelector('.card_status');
+	let plugin = findPlugin(true, guid);
+	if (!plugin) {
+		let installedRef = findPlugin(false, guid);
+		plugin = installedRef ? installedRef.obj : null;
+	}
+	if (isCommercialPluginConfig(plugin)) {
+		if (status) {
+			status.innerHTML = getTranslated('Commercial');
+			status.classList.add('status_commercial');
+			status.classList.remove('status_installed');
+		}
+		if (btn) {
+			btn.innerHTML = getTranslated(messages.learnMore);
+			btn.classList.add('btn_learn_more', 'btn_install');
+			btn.classList.remove('btn_remove');
+			btn.onclick = function(e) {
+				onClickLearnMore(e.target, e);
+			};
+			btn.removeAttribute('disabled');
+			btn.removeAttribute('title');
+		}
+		if (!elements.divSelected.classList.contains('hidden')) {
+			this.document.getElementById('btn_install').classList.add('hidden');
+			this.document.getElementById('btn_remove').classList.add('hidden');
+			this.document.getElementById('btn_update').classList.add('hidden');
+			if (elements.btnLearnMore)
+				elements.btnLearnMore.classList.remove('hidden');
+		}
+		return;
+	}
 	if (status) {
 		status.innerHTML = getTranslated(bInstall ? 'Installed' : 'Not installed');
 		status.classList.toggle('status_installed', bInstall);
@@ -2419,9 +2667,29 @@ function changeAfterInstallOrRemove(bInstall, guid, bHasLocal) {
 			this.document.getElementById('btn_update').classList.remove('hidden');
 		else
 			this.document.getElementById('btn_update').classList.add('hidden');
+		if (elements.btnLearnMore)
+			elements.btnLearnMore.classList.add('hidden');
 	}
 	checkNoUpdated(!bInstall);
 };
+
+function onClickLearnMore(target, event) {
+	if (event && typeof event.stopImmediatePropagation === 'function')
+		event.stopImmediatePropagation();
+	let card = target ? target.closest('.div_item') : null;
+	let guid = card ? card.getAttribute('data-guid') : (elements.divSelected ? elements.divSelected.getAttribute('data-guid') : '');
+	let plugin = findPlugin(true, guid);
+	if (!plugin) {
+		let installed = findPlugin(false, guid);
+		plugin = installed ? installed.obj : null;
+	}
+	let url = getCommercialLandingUrl(plugin) || 'https://r7-consult.ru/';
+	trackGoal('plugin_learn_more_click', {
+		plugin_guid: guid,
+		plugin_name: getPluginLabelByGuid(guid)
+	});
+	openExternalUrl(url);
+}
 
 function checkInternet() {
 	// url for check internet connection

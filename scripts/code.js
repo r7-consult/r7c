@@ -138,12 +138,10 @@
 				break;
 			case 'remove':
 				removeGuid = data.guid;
-				if ( Number( editorVersion.split('.').join('') < 740) )
+				if ( Number(editorVersion.split('.').join('')) < 740 )
 					removePlugin(true);
-				else if ( !data.backup )
-					removePlugin(data.backup);
 				else
-					createWindow('warning');
+					removePlugin(!!data.backup);
 				break;
 			case 'update':
 				window.Asc.plugin.executeMethod('UpdatePlugin', [data.config, data.guid], function(result) {
