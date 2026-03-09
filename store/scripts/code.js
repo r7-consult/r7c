@@ -23,8 +23,8 @@ let isPluginLoading = false;                                         // flag plu
 let isOnline = true;                                                 // flag internet connection
 isLocal && checkInternet();                                          // check internet connection (only for desktop)
 let interval = null;                                                 // interval for checking internet connection (if it doesn't work on launch)
-const OOMarketplaceUrl = 'https://maikai-dev.github.io/r7-plugin-packages/';            // url to store (for local version store in desktop)
-const OOIO = 'https://github.com/maikai-dev/r7-plugin-packages/';                       // url to github repository (for links and discussions)
+const OOMarketplaceUrl = 'https://raw.githubusercontent.com/r7-consult/r7c-packages/main/';            // url to store (for local version store in desktop)
+const OOIO = 'https://github.com/r7-consult/r7c-packages/';                       // url to github repository (for links and discussions)
 const discussionsUrl = OOIO + 'discussions/';                        // discussions url
 let searchTimeout = null;                                            // timeot for search
 let founded = [];                                                    // last founded elemens (for not to redraw if a result is the same)
@@ -61,6 +61,39 @@ let scale = {                                                        // current 
 };
 calculateScale();
 const themeOverrideKey = 'pm_theme_override';
+const contentRemoteBases = [
+	'https://raw.githubusercontent.com/r7-consult/r7c-packages/main/store/resources/content/',
+	'https://raw.githubusercontent.com/r7-consult/r7c-packages/master/store/resources/content/'
+];
+const shouldLoadPluginLangs = false;
+const contentLocalBase = './resources/content/';
+let popupContentLoaded = false;
+let popupWelcomeLoaded = false;
+let popupLicenseLoaded = false;
+let selectedLicenseLoaded = false;
+let selectedPluginLicenseKey = '';
+let selectedPluginLicenseSource = '';
+const r7cFlyoutLastSeenDateKey = 'r7c_flyout_last_seen_date';
+const fallbackWelcomeMarkdown = [
+	'# Добро пожаловать в R7 Plugin Manager',
+	'',
+	'R7 Plugin Manager — менеджер установки и обновления плагинов для экосистемы R7.',
+	'',
+	'- Обновлённый интерфейс в стиле VS Code',
+	'- Быстрый поиск и предпросмотр плагинов',
+	'- Установка и обновление в одном окне',
+	'- Встроенная вкладка License',
+	'',
+	'Telegram: [@SliderQuery](https://t.me/SliderQuery)',
+	'GitHub Issues: [r7-consult/r7c-packages/issues](https://github.com/r7-consult/r7c-packages/issues)',
+	'Сайт: [r7-consult.ru](https://r7-consult.ru/)'
+].join('\n');
+const fallbackLicenseMarkdown = [
+	'# License',
+	'',
+	'Не удалось загрузить LICENSE.md удалённо.',
+	'Показан fallback из встроенной версии плагина.'
+].join('\n');
 
 function normalizeThemeType(type) {
 	return (type && type.includes('dark')) ? 'dark' : 'light';
@@ -122,6 +155,319 @@ function refreshThemeDependentAssets() {
 	updateThemeToggleUI();
 }
 
+function openExternalUrl(url) {
+	if (!url)
+		return;
+	try {
+		if (window.Asc && window.Asc.plugin && typeof window.Asc.plugin.executeMethod === 'function') {
+			window.Asc.plugin.executeMethod('OpenLink', [url]);
+			return;
+		}
+	} catch (e) {
+	}
+	try {
+		window.open(url, '_blank', 'noopener');
+	} catch (e) {
+	}
+}
+
+function getLocalDateStamp() {
+	let date = new Date();
+	let yyyy = date.getFullYear();
+	let mm = String(date.getMonth() + 1).padStart(2, '0');
+	let dd = String(date.getDate()).padStart(2, '0');
+	return yyyy + '-' + mm + '-' + dd;
+}
+
+function canShowR7cFlyoutToday() {
+	try {
+		let lastSeen = localStorage.getItem(r7cFlyoutLastSeenDateKey);
+		return lastSeen !== getLocalDateStamp();
+	} catch (e) {
+		return true;
+	}
+}
+
+function hideR7cFlyoutForToday() {
+	if (elements.r7cFlyout)
+		elements.r7cFlyout.classList.add('hidden');
+	try {
+		localStorage.setItem(r7cFlyoutLastSeenDateKey, getLocalDateStamp());
+	} catch (e) {
+	}
+}
+
+function setupR7cFlyout() {
+	if (!elements.r7cFlyout)
+		return;
+	if (!canShowR7cFlyoutToday()) {
+		elements.r7cFlyout.classList.add('hidden');
+		return;
+	}
+	elements.r7cFlyout.classList.remove('hidden');
+
+	const openTarget = function() {
+		trackGoal('r7c_flyout_click');
+		openExternalUrl('https://r7-consult.ru/?utm_source=r7c_store_flyout');
+		hideR7cFlyoutForToday();
+	};
+
+	elements.r7cFlyout.addEventListener('click', openTarget);
+	elements.r7cFlyout.addEventListener('keydown', function(event) {
+		if (event.key === 'Enter' || event.key === ' ') {
+			event.preventDefault();
+			openTarget();
+		}
+	});
+}
+
+function isCommercialType(rawType) {
+	let normalized = String(rawType || '').trim().toLowerCase();
+	return normalized === 'commercial' || normalized === 'paid' || normalized === 'коммерческий';
+}
+
+function isCommercialPluginConfig(pluginConfig) {
+	if (!pluginConfig)
+		return false;
+	let variation = (pluginConfig.variations && pluginConfig.variations[0]) ? pluginConfig.variations[0] : null;
+	let typeValue = variation && variation.store && typeof variation.store.type === 'string'
+		? variation.store.type
+		: pluginConfig.type;
+	return isCommercialType(typeValue);
+}
+
+async function ensureCommercialAccess(pluginConfig) {
+	let gate = window.TelegramCommercialGate;
+	if (!isCommercialPluginConfig(pluginConfig))
+		return { allowed: true, reason: 'not-commercial' };
+	if (!gate || typeof gate.ensureAccess !== 'function')
+		return { allowed: true, reason: 'gate-missing' };
+	try {
+		return await gate.ensureAccess(pluginConfig);
+	} catch (e) {
+		return { allowed: true, reason: 'gate-error' };
+	}
+}
+
+function getSelectedPluginLicenseBase() {
+	return selectedPluginLicenseSource || '';
+}
+
+async function fetchSelectedPluginLicense(baseUrl) {
+	if (!baseUrl)
+		return '';
+	let normalizedBase = baseUrl.endsWith('/') ? baseUrl : (baseUrl + '/');
+	try {
+		normalizedBase = new URL(normalizedBase, location.href).href;
+	} catch (e) {
+	}
+	let cacheBuster = 'v=' + Date.now();
+	let candidates = ['LICENSE.md', 'LICENSE.MD', 'license.md', 'LICENSE', 'license'];
+	for (let i = 0; i < candidates.length; i++) {
+		let candidateUrl = normalizedBase + candidates[i] + '?' + cacheBuster;
+		try {
+			let response = await fetch(candidateUrl, { cache: 'no-cache' });
+			if (!response.ok)
+				continue;
+			let text = await response.text();
+			if (text && text.trim())
+				return text;
+		} catch (e) {
+		}
+	}
+	return '';
+}
+
+function renderMarkdown(markdownText) {
+	if (!markdownText)
+		return '';
+	try {
+		if (window.marked && typeof window.marked.parse === 'function')
+			return window.marked.parse(markdownText);
+		if (typeof window.marked === 'function')
+			return window.marked(markdownText);
+	} catch (e) {
+	}
+	return markdownText.replace(/\n/g, '<br>');
+}
+
+async function fetchMarkdownWithFallback(fileName, fallbackMarkdown) {
+	let cacheBuster = 'v=' + Date.now();
+	for (let i = 0; i < contentRemoteBases.length; i++) {
+		let remoteUrl = contentRemoteBases[i] + fileName + '?' + cacheBuster;
+		try {
+			let response = await fetch(remoteUrl, { cache: 'no-cache' });
+			if (response.ok) {
+				let text = await response.text();
+				if (text && text.trim())
+					return text;
+			}
+		} catch (e) {
+		}
+	}
+
+	try {
+		let localUrl = contentLocalBase + fileName + '?' + cacheBuster;
+		let localResponse = await fetch(localUrl, { cache: 'no-cache' });
+		if (localResponse.ok) {
+			let localText = await localResponse.text();
+			if (localText && localText.trim())
+				return localText;
+		}
+	} catch (e) {
+	}
+
+	return fallbackMarkdown;
+}
+
+async function fetchFirstMarkdown(candidates, fallbackMarkdown) {
+	for (let i = 0; i < candidates.length; i++) {
+		let value = await fetchMarkdownWithFallback(candidates[i], '');
+		if (value && value.trim())
+			return value;
+	}
+	return fallbackMarkdown;
+}
+
+function closeStorePluginWindow() {
+	try {
+		if (window.Asc && window.Asc.plugin && typeof window.Asc.plugin.executeCommand === 'function') {
+			window.Asc.plugin.executeCommand('close', '');
+			return;
+		}
+	} catch (e) {
+	}
+	try {
+		window.close();
+	} catch (e) {
+	}
+}
+
+async function ensureStoreStartupAccess() {
+	let gate = window.TelegramCommercialGate;
+	if (!gate || typeof gate.ensureAccess !== 'function')
+		return { allowed: true, reason: 'gate-missing' };
+	try {
+		// Принудительно запускаем gate для самого store-плагина при открытии.
+		return await gate.ensureAccess({ type: 'commercial' });
+	} catch (e) {
+		return { allowed: true, reason: 'gate-error' };
+	}
+}
+
+function switchWelcomeTab(tabName) {
+	let isLicense = tabName === 'license';
+	if (elements.welcomeTabWelcome)
+		elements.welcomeTabWelcome.classList.toggle('welcome-tab-active', !isLicense);
+	if (elements.welcomeTabLicense)
+		elements.welcomeTabLicense.classList.toggle('welcome-tab-active', isLicense);
+	if (elements.welcomeTabWelcome)
+		elements.welcomeTabWelcome.setAttribute('aria-selected', isLicense ? 'false' : 'true');
+	if (elements.welcomeTabLicense)
+		elements.welcomeTabLicense.setAttribute('aria-selected', isLicense ? 'true' : 'false');
+	if (elements.welcomeTabPanelWelcome)
+		elements.welcomeTabPanelWelcome.classList.toggle('hidden', isLicense);
+	if (elements.welcomeTabPanelLicense)
+		elements.welcomeTabPanelLicense.classList.toggle('hidden', !isLicense);
+	if (elements.welcomePopupModal)
+		elements.welcomePopupModal.classList.toggle('welcome-popup-license-mode', isLicense);
+	trackGoal('welcome_tab_switch', { tab: isLicense ? 'license' : 'welcome' });
+}
+
+async function loadPopupContent(tabName) {
+	let targetTab = tabName === 'license' ? 'license' : 'welcome';
+	if (targetTab === 'welcome') {
+		if (popupWelcomeLoaded)
+			return;
+		let welcomeMarkdown = fallbackWelcomeMarkdown;
+		try {
+			welcomeMarkdown = await fetchFirstMarkdown(['welcome.md', 'WELCOME.md'], fallbackWelcomeMarkdown);
+		} catch (e) {
+		}
+		if (elements.welcomeMarkdown)
+			elements.welcomeMarkdown.innerHTML = renderMarkdown(welcomeMarkdown);
+		popupWelcomeLoaded = true;
+	} else {
+		if (popupLicenseLoaded)
+			return;
+		let licenseMarkdown = fallbackLicenseMarkdown;
+		try {
+			licenseMarkdown = await fetchFirstMarkdown(['LICENSE.md', 'LICENSE.MD', 'license.md', 'LICENSE', 'license'], fallbackLicenseMarkdown);
+		} catch (e) {
+		}
+		if (elements.licenseMarkdown)
+			elements.licenseMarkdown.innerHTML = renderMarkdown(licenseMarkdown);
+		popupLicenseLoaded = true;
+	}
+
+	popupContentLoaded = popupWelcomeLoaded && popupLicenseLoaded;
+}
+
+async function loadSelectedLicensePreview() {
+	let sourceKey = getSelectedPluginLicenseBase();
+	if (selectedLicenseLoaded && selectedPluginLicenseKey === sourceKey)
+		return;
+	if (!elements.divLicensePreview)
+		return;
+	elements.divLicensePreview.innerHTML = renderMarkdown('Загрузка лицензии плагина...');
+	let licenseMarkdown = '';
+	try {
+		licenseMarkdown = await fetchSelectedPluginLicense(sourceKey);
+	} catch (e) {
+	}
+	if (!licenseMarkdown.trim()) {
+		licenseMarkdown = [
+			'# License',
+			'',
+			'Для выбранного плагина LICENSE.md не найден.',
+			'Проверьте, что в папке плагина есть файл LICENSE.md.'
+		].join('\n');
+	}
+	elements.divLicensePreview.innerHTML = renderMarkdown(licenseMarkdown);
+	selectedLicenseLoaded = true;
+	selectedPluginLicenseKey = sourceKey;
+}
+
+function showWelcomePopup(tabName) {
+	if (!elements.welcomePopupOverlay)
+		return;
+	let targetTab = tabName === 'license' ? 'license' : 'welcome';
+	elements.welcomePopupOverlay.classList.remove('hidden');
+	switchWelcomeTab(targetTab);
+	loadPopupContent(targetTab);
+	trackGoal('welcome_popup_open');
+}
+
+function hideWelcomePopup() {
+	if (!elements.welcomePopupOverlay)
+		return;
+	elements.welcomePopupOverlay.classList.add('hidden');
+	trackGoal('welcome_popup_close');
+}
+
+function bindPopupLinkHandling() {
+	let onLinkClick = function(event) {
+		let link = event.target.closest('a[href]');
+		if (!link)
+			return;
+		let href = link.getAttribute('href');
+		if (!href || href === '#')
+			return;
+		event.preventDefault();
+		event.stopPropagation();
+		openExternalUrl(href);
+	};
+
+	if (elements.welcomeMarkdown)
+		elements.welcomeMarkdown.addEventListener('click', onLinkClick);
+	if (elements.licenseMarkdown)
+		elements.licenseMarkdown.addEventListener('click', onLinkClick);
+	if (elements.divLicensePreview)
+		elements.divLicensePreview.addEventListener('click', onLinkClick);
+	if (elements.welcomeAside)
+		elements.welcomeAside.addEventListener('click', onLinkClick);
+}
+
 function setThemeType(nextType, persist) {
 	themeType = normalizeThemeType(nextType);
 	if (window.Asc && window.Asc.plugin && window.Asc.plugin.theme)
@@ -155,7 +501,8 @@ const languages = [                                                  // list of 
 const messages = {
 	versionWarning: 'This plugin will only work in a newer version of the editor.',
 	linkManually: 'Install plugin manually',
-	linkPR: 'Submit your own plugin'
+	linkPR: 'Submit your own plugin',
+	licensePlaceholder: 'Текст лицензии будет добавлен после получения от Марии.'
 };
 const isIE = (navigator.userAgent.toLowerCase().indexOf("msie") > -1 ||
 				navigator.userAgent.toLowerCase().indexOf("trident") > -1 ||
@@ -217,16 +564,13 @@ getTranslation();
 if (!isLocal)
 	fetchAllPlugins(true, false);
 
-window.onload = function() {
+window.onload = async function() {
 	let rule = '\n.asc-plugin-loader{background-color:' + (themeType == 'light' ? '#ffffff' : '#333333') + ';padding: 10px;display: flex;justify-content: center;align-items: center;border-radius: 5px;}\n'
 	rule += '.asc-plugin-loader{color:' + (themeType == 'light' ? '#444444' : 'rgba(255,255,255,0.8)') + '}\n';
 	let styleTheme = document.createElement('style');
 	styleTheme.type = 'text/css';
 	styleTheme.innerHTML = rule;
 	document.getElementsByTagName('head')[0].appendChild(styleTheme);
-	if (isPluginLoading || isTranslationLoading) {
-		toogleLoader(true, "Loading");
-	}
 	applyThemeClass();
 	if (themeType.includes('light'))
 		document.body.classList.add('white_bg');
@@ -234,6 +578,16 @@ window.onload = function() {
 		document.body.classList.remove('white_bg');
 	// init element
 	initElemnts();
+	try {
+		if (window.Asc && window.Asc.plugin && typeof window.Asc.plugin.resizeWindow === 'function')
+			window.Asc.plugin.resizeWindow(865, 600, 600, 600, 0, 0);
+	} catch (e) {
+	}
+	let startupGateResult = await ensureStoreStartupAccess();
+	if (startupGateResult && startupGateResult.allowed === false) {
+		closeStorePluginWindow();
+		return;
+	}
 	if (elements.btnSettings) {
 		elements.btnSettings.onclick = function() {
 			if (elements.settingsModal)
@@ -241,9 +595,10 @@ window.onload = function() {
 			updateThemeToggleUI();
 		};
 	}
-	if (elements.btnReload) {
-		elements.btnReload.onclick = function() {
-			window.location.reload();
+	if (elements.btnLicense) {
+		elements.btnLicense.onclick = function() {
+			trackGoal('license_click');
+			showWelcomePopup('license');
 		};
 	}
 	if (elements.btnSettingsClose) {
@@ -268,7 +623,44 @@ window.onload = function() {
 			setThemeType('dark', true);
 		};
 	}
+	if (elements.welcomePopupClose) {
+		elements.welcomePopupClose.onclick = hideWelcomePopup;
+	}
+	if (elements.welcomePopupOk) {
+		elements.welcomePopupOk.onclick = hideWelcomePopup;
+	}
+	if (elements.welcomeTabWelcome) {
+		elements.welcomeTabWelcome.onclick = function() {
+			switchWelcomeTab('welcome');
+			loadPopupContent('welcome');
+		};
+	}
+	if (elements.welcomeTabLicense) {
+		elements.welcomeTabLicense.onclick = function() {
+			switchWelcomeTab('license');
+			loadPopupContent('license');
+		};
+	}
+	if (elements.welcomePopupOverlay) {
+		elements.welcomePopupOverlay.addEventListener('click', function(event) {
+			if (event.target === elements.welcomePopupOverlay)
+				hideWelcomePopup();
+		});
+	}
+	document.addEventListener('keydown', function(event) {
+		if (event.key === 'Escape' && elements.welcomePopupOverlay && !elements.welcomePopupOverlay.classList.contains('hidden')) {
+			hideWelcomePopup();
+		}
+	});
+	bindPopupLinkHandling();
+	setupR7cFlyout();
+	showWelcomePopup('welcome');
 	updateThemeToggleUI();
+	trackGoal('app_open', {
+		lang: lang,
+		theme: themeType,
+		local: isLocal ? '1' : '0'
+	});
 	isFrameLoading = false;
 	onTranslate();
 
@@ -291,6 +683,33 @@ window.onload = function() {
 		makeSearch(event.target.value.trim().toLowerCase());
 	});
 };
+
+function ensurePluginChangelogLoaded(plugin) {
+	if (!plugin || plugin.changelog || plugin._changelogLoading)
+		return;
+	plugin._changelogLoading = true;
+	makeRequest(plugin.baseUrl + 'CHANGELOG.md', 'GET', null, null, false).then(
+		function(response) {
+			let settings = getMarkedSetting();
+			let value = parseChangelog(response);
+			let lexed = marked.lexer(value, settings);
+			plugin.changelog = marked.parser(lexed, settings);
+			plugin._changelogLoading = false;
+			if (elements.divSelected && !elements.divSelected.classList.contains('hidden')) {
+				let guid = elements.divSelected.getAttribute('data-guid');
+				if (guid === plugin.guid) {
+					document.getElementById('span_changelog').classList.remove('hidden');
+					document.getElementById('div_changelog_preview').innerHTML = plugin.changelog;
+					if (PsChangelog)
+						PsChangelog.update();
+				}
+			}
+		},
+		function() {
+			plugin._changelogLoading = false;
+		}
+	);
+}
 
 window.addEventListener('message', function(message) {
 	// getting messages from editor or plugin
@@ -358,6 +777,11 @@ window.addEventListener('message', function(message) {
 			}
 
 			changeAfterInstallOrRemove(true, message.guid);
+			trackGoal('plugin_install_success', {
+				plugin_guid: message.guid,
+				plugin_name: getPluginLabelByGuid(message.guid),
+				source: isLocal ? 'desktop' : 'web'
+			});
 			toogleLoader(false);
 			break;
 		case 'Updated':
@@ -592,7 +1016,7 @@ function detectThemeType() {
 	if (override)
 		return normalizeThemeType(override);
 	let type = getUrlSearchValue("theme-type");
-	return normalizeThemeType(type || 'light');
+	return normalizeThemeType(type || 'dark');
 };
 
 function initElemnts() {
@@ -605,11 +1029,27 @@ function initElemnts() {
 	// elements.close = document.getElementById('close');
 	elements.divHeader = document.getElementById('div_header');
 	elements.btnSettings = document.getElementById('btn_settings');
-	elements.btnReload = document.getElementById('btn_reload');
+	elements.btnLicense = document.getElementById('btn_license');
 	elements.settingsModal = document.getElementById('settings_modal');
 	elements.btnSettingsClose = document.getElementById('btn_settings_close');
 	elements.btnThemeLight = document.getElementById('btn_theme_light');
 	elements.btnThemeDark = document.getElementById('btn_theme_dark');
+	elements.r7cFlyout = document.getElementById('r7c-flyout');
+	elements.r7cFlyoutLogo = document.getElementById('r7c-flyout-logo');
+	elements.welcomePopupOverlay = document.getElementById('welcome-popup-overlay');
+	elements.welcomePopupModal = document.querySelector('#welcome-popup-overlay .welcome-popup-modal');
+	elements.welcomePopupClose = document.getElementById('welcome-popup-close');
+	elements.welcomePopupOk = document.getElementById('welcome-ok');
+	elements.welcomeTabWelcome = document.getElementById('welcome-tab-welcome');
+	elements.welcomeTabLicense = document.getElementById('welcome-tab-license');
+	elements.welcomeTabPanelWelcome = document.getElementById('welcome-tab-panel-welcome');
+	elements.welcomeTabPanelLicense = document.getElementById('welcome-tab-panel-license');
+	elements.welcomeMarkdown = document.getElementById('welcome-markdown');
+	elements.licenseMarkdown = document.getElementById('license-markdown');
+	elements.divSelectedLicense = document.getElementById('div_selected_license');
+	elements.divLicensePreview = document.getElementById('div_license_preview');
+	elements.spanLicense = document.getElementById('span_license');
+	elements.welcomeAside = document.getElementById('welcome-aside');
 	elements.settingsTitle = document.getElementById('settings_title');
 	elements.divSelected = document.getElementById('div_selected_toolbar');
 	elements.divSelectedMain = document.getElementById('div_selected_main');
@@ -675,35 +1115,29 @@ function getAllPluginsData(bFirstRender, bshowMarketplace) {
 				config.url = confUrl;
 				config.baseUrl = pluginUrl;
 				arr[i] = config;
-				
-				makeRequest(pluginUrl + 'translations/langs.json', 'GET', null, null, false).then(
-					function(response) {
-						let supportedLangs = [ getTranslated('English') ];
-						let arr = JSON.parse(response);
-						arr.forEach(function(full) {
-							let short = full.split('-')[0];
-							for (let i = 0; i < languages.length; i++) {
-								// detect only full language (because we can make mistake with some langs. for instance: "pt-PT" and "pt-BR")
-								if (languages[i][0] == full /*|| languages[i][1] == short*/) {
-									supportedLangs.push( getTranslated( languages[i][2] ) );
+				config.languages = [ getTranslated('English') ];
+				if (shouldLoadPluginLangs) {
+					makeRequest(pluginUrl + 'translations/langs.json', 'GET', null, null, false).then(
+						function(response) {
+							let supportedLangs = [ getTranslated('English') ];
+							let arr = JSON.parse(response);
+							arr.forEach(function(full) {
+								let short = full.split('-')[0];
+								for (let i = 0; i < languages.length; i++) {
+									// detect only full language (because we can make mistake with some langs. for instance: "pt-PT" and "pt-BR")
+									if (languages[i][0] == full /*|| languages[i][1] == short*/) {
+										supportedLangs.push( getTranslated( languages[i][2] ) );
+									}
 								}
-							}
-						});
-						if (supportedLangs.length > 1)
-							config.languages = supportedLangs;
-					},
-					function(error) {
-						config.languages = [ getTranslated('English') ];
-					}
-				);
-				makeRequest(pluginUrl + 'CHANGELOG.md', 'GET', null, null, false).then(
-					function(response) {
-						let settings = getMarkedSetting();
-						let value = parseChangelog(response);
-						let lexed = marked.lexer(value, settings);
-						config.changelog = marked.parser(lexed, settings);
-					}
-				);
+							});
+							if (supportedLangs.length > 1)
+								config.languages = supportedLangs;
+						},
+						function(error) {
+							config.languages = [ getTranslated('English') ];
+						}
+					);
+				}
 				if (plugin.discussion) {
 					discussionCount++;
 					config.discussionUrl = discussionsUrl + plugin.discussion;
@@ -780,7 +1214,10 @@ function endPluginsDataLoading(bFirstRender, bshowMarketplace, Unloaded) {
 
 function getInstalledLanguages() {
 	installedPlugins.forEach(function(pl) {
-		makeRequest(pl.obj.baseUrl + 'translations/langs.json', 'GET', null, null, true).then(
+		pl.obj.languages = [ getTranslated('English') ];
+		if (!shouldLoadPluginLangs)
+			return;
+		makeRequest(pl.obj.baseUrl + 'translations/langs.json', 'GET', null, null, false).then(
 			function(response) {
 				let supportedLangs = [ getTranslated('English') ];
 				let arr = JSON.parse(response);
@@ -876,6 +1313,21 @@ function getPluginVersion(text) {
 	return major * factor * factor + minor * factor + build;
 };
 
+function getPluginTypeLabel(plugin, variation) {
+	let rawType = '';
+	if (variation && variation.store && typeof variation.store.type === 'string')
+		rawType = variation.store.type;
+	else if (plugin && typeof plugin.type === 'string')
+		rawType = plugin.type;
+
+	let normalized = String(rawType || '').trim().toLowerCase();
+	if (!normalized)
+		return '';
+	if (isCommercialType(normalized))
+		return getTranslated('Commercial');
+	return rawType;
+}
+
 function createPluginDiv(plugin, bInstalled) {
 	// this function creates div (preview) for plugins
 	let div = document.createElement('div');
@@ -929,6 +1381,7 @@ function createPluginDiv(plugin, bInstalled) {
 	let bg = variation.store && variation.store.background ? variation.store.background[themeType] : defaultBG;
 	let additional = bNotAvailable ? 'disabled title="' + getTranslated(messages.versionWarning) + '"'  : '';
 	let versionLabel = plugin.version ? ('v' + plugin.version) : '';
+	let typeLabel = getPluginTypeLabel(plugin, variation);
 	let isInstalled = (installed && !bRemoved);
 	let statusText = getTranslated(isInstalled ? 'Installed' : 'Not installed');
 	let statusClass = 'card_status' + (isInstalled ? ' status_installed' : '');
@@ -944,6 +1397,7 @@ function createPluginDiv(plugin, bInstalled) {
 					'<div class="div_description">' +
 						'<div class="card_title">' +
 							'<span class="span_name">' + name + '</span>' +
+							(typeLabel ? '<span class="span_plugin_type" title="' + typeLabel + '">' + typeLabel + '</span>' : '') +
 							(versionLabel ? '<span class="span_version">' + versionLabel + '</span>' : '') +
 						'</div>' +
 						'<span class="span_description">' + description + '</span>' +
@@ -991,7 +1445,7 @@ function showRating() {
 	}
 };
 
-function onClickInstall(target, event) {
+async function onClickInstall(target, event) {
 	// click install button
 	event.stopImmediatePropagation();
 	// click install button
@@ -1017,6 +1471,16 @@ function onClickInstall(target, event) {
 		guid : guid,
 		config : (installed ? installed.obj : plugin)
 	};
+	let gateResult = await ensureCommercialAccess(message.config);
+	if (gateResult && gateResult.allowed === false) {
+		toogleLoader(false);
+		return;
+	}
+	trackGoal('plugin_install_click', {
+		plugin_guid: guid,
+		plugin_name: getPluginLabelByGuid(guid),
+		source: isLocal ? 'desktop' : 'web'
+	});
 	// we should do that because we have some problem when desktop is loading plugin
 	if (isLocal) {
 		setTimeout(function() {
@@ -1027,7 +1491,7 @@ function onClickInstall(target, event) {
 	}
 };
 
-function onClickUpdate(target) {
+async function onClickUpdate(target) {
 	// click update button
 	// we should do that because we have some problem when desktop is loading plugin
 	if (isLocal) {
@@ -1045,6 +1509,15 @@ function onClickUpdate(target) {
 		guid : guid,
 		config : plugin
 	};
+	let gateResult = await ensureCommercialAccess(message.config);
+	if (gateResult && gateResult.allowed === false) {
+		toogleLoader(false);
+		return;
+	}
+	trackGoal('plugin_update_click', {
+		plugin_guid: guid,
+		plugin_name: getPluginLabelByGuid(guid)
+	});
 	// we should do that because we have some problem when desktop is loading plugin
 	if (isLocal) {
 		setTimeout(function() {
@@ -1070,6 +1543,10 @@ function onClickRemove(target, event) {
 		guid : guid,
 		backup : needBackupPlugin(guid)
 	};
+	trackGoal('plugin_remove_click', {
+		plugin_guid: guid,
+		plugin_name: getPluginLabelByGuid(guid)
+	});
 	sendMessage(message);
 };
 
@@ -1081,13 +1558,27 @@ function needBackupPlugin(guid) {
 	return isLocal ? findPlugin(true, guid) == undefined : false;
 }
 
-function onClickUpdateAll() {
+async function onClickUpdateAll() {
 	clearTimeout(timeout);
 	timeout = setTimeout(toogleLoader, 200, true, "Updating");
 	elements.btnUpdateAll.classList.add('hidden');
+	trackGoal('plugin_update_all_click', {
+		pending_updates: allPlugins.filter(function(el) { return el.bHasUpdate; }).length
+	});
 	let arr = allPlugins.filter(function(el) {
 		return el.bHasUpdate;
 	});
+	let hasCommercial = arr.some(function(el) {
+		return isCommercialPluginConfig(el);
+	});
+	if (hasCommercial) {
+		let gateResult = await ensureCommercialAccess(arr[0]);
+		if (gateResult && gateResult.allowed === false) {
+			toogleLoader(false);
+			elements.btnUpdateAll.classList.remove('hidden');
+			return;
+		}
+	}
 	updateCount = arr.length;
 	arr.forEach(function(plugin) {
 		let message = {
@@ -1105,6 +1596,10 @@ function onClickItem() {
 	let offered = "Ascensio System SIA";
 	let hiddenCounter = 0;
 	let guid = this.getAttribute('data-guid');
+	trackGoal('plugin_open_card', {
+		plugin_guid: guid,
+		plugin_name: getPluginLabelByGuid(guid)
+	});
 	let pluginDiv = document.getElementById(guid);
 	let divPreview = document.createElement('div');
 	divPreview.id = 'div_preview';
@@ -1134,6 +1629,13 @@ function onClickItem() {
 	} else {
 		elements.divGitLink.classList.remove('hidden');
 	}
+
+	selectedPluginLicenseSource = plugin.baseUrl || plugin.url || '';
+	selectedPluginLicenseKey = '';
+	selectedLicenseLoaded = false;
+	ensurePluginChangelogLoaded(plugin);
+	if (elements.divLicensePreview)
+		elements.divLicensePreview.innerHTML = renderMarkdown('Загрузка лицензии плагина...');
 
 	let bWebUrl = !plugin.baseUrl.includes('http://') && !plugin.baseUrl.includes('file:') && !plugin.baseUrl.includes('../');
 	let bCorrectUrl = isLocal || bWebUrl;
@@ -1170,6 +1672,7 @@ function onClickItem() {
 	}
 
 	let bHasUpdate = (pluginDiv.lastChild.firstChild.lastChild.tagName === 'SPAN' && !pluginDiv.lastChild.firstChild.lastChild.classList.contains('hidden'));
+	let typeLabel = getPluginTypeLabel(plugin, plugin.variations[0]);
 	
 	if ( (installed && installed.obj.version) || plugin.version ) {
 		elements.spanVersion.innerText = (installed && installed.obj.version ? installed.obj.version : plugin.version);
@@ -1206,7 +1709,7 @@ function onClickItem() {
 		document.getElementById('div_changelog_preview').innerHTML = '';
 	}
 
-	let pluginUrl = plugin.baseUrl.replace(OOMarketplaceUrl, (OOIO + 'tree/master/') );
+	let pluginUrl = plugin.baseUrl.replace(OOMarketplaceUrl, (OOIO + 'tree/main/') );
 	
 	// TODO problem with plugins icons (different margin from top)
 	elements.divSelected.setAttribute('data-guid', guid);
@@ -1216,6 +1719,8 @@ function onClickItem() {
 	elements.imgIcon.setAttribute('src', tmp);
 	elements.spanName.innerHTML = this.children[1].children[0].innerText;
 	elements.spanOffered.innerHTML = plugin.offered || offered;
+	if (typeLabel)
+		elements.spanOffered.innerHTML += ' · ' + typeLabel;
 	elements.spanSelectedDescr.innerHTML = this.children[1].children[1].innerText;
 	if (bWebUrl) {
 		elements.linkPlugin.setAttribute('href', pluginUrl);
@@ -1300,9 +1805,12 @@ function onSelectPreview(target, type) {
 			setDivHeight();
 		} else if (type === 2) {
 			document.getElementById('div_selected_info').classList.remove('hidden');
-		} else {
+		} else if (type === 3) {
 			document.getElementById('div_selected_changelog').classList.remove('hidden');
 			PsChangelog.update();
+		} else {
+			document.getElementById('div_selected_license').classList.remove('hidden');
+			loadSelectedLicensePreview();
 		}
 	}
 };
@@ -1493,18 +2001,24 @@ function onTranslate() {
 	elements.btnMarketplace.innerHTML = getTranslated('Catalog');
 	if (elements.btnSettings)
 		elements.btnSettings.innerHTML = getTranslated('Settings');
-	if (elements.btnReload)
-		elements.btnReload.innerHTML = getTranslated('Reload');
+	if (elements.btnLicense) {
+		elements.btnLicense.title = getTranslated('License');
+		elements.btnLicense.setAttribute('aria-label', getTranslated('License'));
+	}
 	elements.btnInstall.innerHTML = getTranslated('Install');
 	elements.btnRemove.innerHTML = getTranslated('Remove');
 	elements.btnUpdate.innerHTML = getTranslated('Update');
 	elements.btnUpdateAll.innerHTML = getTranslated('Update All');
 	elements.inpSearch.placeholder = getTranslated('Search plugins') + '...';
-	document.getElementById('lbl_header').innerHTML = getTranslated('R7 Plugin Manager');
-	document.getElementById('lbl_subtitle').innerHTML = getTranslated('GitVerse catalog and installer');
+	document.getElementById('lbl_header').innerHTML = 'R7 Consult';
+	document.getElementById('lbl_subtitle').innerHTML = 'Каталог и установка плагинов';
+	let rightsNotice = document.getElementById('lbl_r7c_rights');
+	if (rightsNotice)
+		rightsNotice.innerHTML = getTranslated('Plugin marketplace is powered by R7 Consult. All rights reserved.');
 	document.getElementById('span_offered_caption').innerHTML = getTranslated('Offered by') + ' ';
 	document.getElementById('span_overview').innerHTML = getTranslated('Overview');
 	document.getElementById('span_info').innerHTML = getTranslated('Info & Support');
+	document.getElementById('span_license').innerHTML = getTranslated('License');
 	document.getElementById('span_lern').innerHTML = getTranslated('Learn how to use') + ' ';
 	document.getElementById('span_lern_plugin').innerHTML = getTranslated('the plugin in') + ' ';
 	document.getElementById('span_contribute').innerHTML = getTranslated('Contribute') + ' ';
@@ -1572,6 +2086,15 @@ function createSelect() {
 	// });
 };
 
+function getIconNormalByScale(iconSet) {
+	if (!iconSet || typeof iconSet !== 'object')
+		return '';
+	let scaleConfig = iconSet[scale.percent] || iconSet['100%'] || iconSet['*'];
+	if (scaleConfig && typeof scaleConfig === 'object' && scaleConfig.normal)
+		return scaleConfig.normal;
+	return '';
+}
+
 function getImageUrl(guid, bNotForStore, bSetSize, id) {
 	// get icon url for current plugin (according to theme and scale)
 	let iconScale = '/icon.png';
@@ -1627,7 +2150,9 @@ function getImageUrl(guid, bNotForStore, bSetSize, id) {
 					break;
 				}
 			}
-			curIcon = baseUrl + icon[scale.percent].normal;
+			let iconNormal = getIconNormalByScale(icon);
+			if (iconNormal)
+				curIcon = baseUrl + iconNormal;
 		} else if (variation.icons) {
 			// there could be old and new scheme
 			// there will be a string array or object like icons2 above (old scheme)
@@ -1646,10 +2171,16 @@ function getImageUrl(guid, bNotForStore, bSetSize, id) {
 							break;
 						}
 					}
-					curIcon = baseUrl + icon[scale.percent].normal;
+					let iconNormal = getIconNormalByScale(icon);
+					if (iconNormal)
+						curIcon = baseUrl + iconNormal;
 				} else {
 					// old scheme and icons is a string array
-					curIcon = baseUrl + (scale.value >= 1.2 ? variation.icons[1] : variation.icons[0]);
+					let iconPath = (scale.value >= 1.2 ? variation.icons[1] : variation.icons[0]) || variation.icons[0];
+					if (iconPath && /@\d+(?:\.\d+)?x\.svg$/i.test(iconPath) && variation.icons[0] && /\.svg$/i.test(variation.icons[0]))
+						iconPath = variation.icons[0];
+					if (iconPath)
+						curIcon = baseUrl + iconPath;
 				}
 			}
 		}	
@@ -1674,8 +2205,7 @@ function getImageUrl(guid, bNotForStore, bSetSize, id) {
 				reader.readAsDataURL(res);
 			},
 			function(error) {
-				// it's because we have a new maket for error messages
-				createError(error, true);
+				// optional image prefetch for sizing can fail on missing icon variants; keep default sizing silently
 			}
 		);
 	}
@@ -1699,6 +2229,7 @@ function getUrlSearchValue(key) {
 
 function toogleView(current, oldEl, text, bAll, bForce) {
 	if ( !current.classList.contains('btn_toolbar_active') || bForce ) {
+		trackGoal(bAll ? 'tab_catalog_open' : 'tab_installed_open');
 		elements.inpSearch.value = '';
 		founded = [];
 		oldEl.classList.remove('btn_toolbar_active');
@@ -1741,6 +2272,7 @@ function installPluginManually() {
 
 		let result = window["AscDesktopEditor"]["PluginInstall"](file);
 		if (result) {
+			trackGoal('plugin_install_manual_success');
 			// нужно обновить список установленных плагинов
 			sendMessage({ type: 'getInstalled', updateInstalled: true }, '*');
 		} else {
@@ -1943,6 +2475,29 @@ function handeNoInternet() {
 function getTranslated(text) {
 	return translate[text] || text;
 };
+
+function trackGoal(goalName, params) {
+	if (!goalName || typeof window.ym !== 'function')
+		return;
+	try {
+		window.ym(107160430, 'reachGoal', goalName, params || {});
+	} catch (e) {
+		// ignore analytics errors
+	}
+}
+
+function getPluginLabelByGuid(guid) {
+	let plugin = findPlugin(true, guid);
+	if (!plugin) {
+		let installed = findPlugin(false, guid);
+		plugin = installed ? installed.obj : null;
+	}
+	if (!plugin)
+		return guid || 'unknown';
+	if (bTranslate && plugin.nameLocale && (plugin.nameLocale[lang] || plugin.nameLocale[shortLang]))
+		return plugin.nameLocale[lang] || plugin.nameLocale[shortLang];
+	return plugin.name || guid || 'unknown';
+}
 
 function parseRatingPage(data) {
 	// if we load this page, parse it

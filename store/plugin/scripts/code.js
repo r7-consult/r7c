@@ -42,8 +42,7 @@
 	
 	window.Asc.plugin.init = function() {
 		window.Asc.plugin.executeMethod('ShowButton',['developer', true, 'right']);
-		// resize window
-		window.Asc.plugin.resizeWindow(608, 600, 608, 600, 0, 0);
+		window.Asc.plugin.resizeWindow(865, 600, 600, 600, 0, 0);
 		if (!isLocal) {
 			checkInternet(true);
 			loaderTimeout = setTimeout(createLoader, 500);
@@ -119,7 +118,18 @@
 
 	window.addEventListener('message', function(message) {
 		// getting messages from marketplace
-		let data = JSON.parse(message.data);
+		if (!iframe || message.source !== iframe.contentWindow)
+			return;
+		if (typeof message.data !== 'string')
+			return;
+		let data = null;
+		try {
+			data = JSON.parse(message.data);
+		} catch (e) {
+			return;
+		}
+		if (!data || typeof data !== 'object' || !data.type)
+			return;
 			
 		switch (data.type) {
 			case 'getInstalled':

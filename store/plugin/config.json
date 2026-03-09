@@ -26,25 +26,25 @@
         {
             "description" : "Plugin Manager",
             "url" : "index.html",
-            "icons": [ "resources/light/icon.png", "resources/light/icon@2x.png" ],
+            "icons": [ "resources/light/icon.svg", "resources/light/icon.svg" ],
             "icons2": [
             {
                 "style" : "light",
 
                 "100%": {
-                    "normal": "resources/light/icon.png"
+                    "normal": "resources/light/icon.svg"
                 },
                 "125%": {
-                    "normal": "resources/light/icon@1.25x.png"
+                    "normal": "resources/light/icon.svg"
                 },
                 "150%": {
-                    "normal": "resources/light/icon@1.5x.png"
+                    "normal": "resources/light/icon.svg"
                 },
                 "175%": {
-                    "normal": "resources/light/icon@1.75x.png"
+                    "normal": "resources/light/icon.svg"
                 },
                 "200%": {
-                    "normal": "resources/light/icon@2x.png"
+                    "normal": "resources/light/icon.svg"
                 },
                 "*": {
                     "normal": "resources/light/icon.svg"
@@ -54,19 +54,19 @@
                 "style" : "dark",
 
                 "100%": {
-                    "normal": "resources/dark/icon.png"
+                    "normal": "resources/dark/icon.svg"
                 },
                 "125%": {
-                    "normal": "resources/dark/icon@1.25x.png"
+                    "normal": "resources/dark/icon.svg"
                 },
                 "150%": {
-                    "normal": "resources/dark/icon@1.5x.png"
+                    "normal": "resources/dark/icon.svg"
                 },
                 "175%": {
-                    "normal": "resources/dark/icon@1.75x.png"
+                    "normal": "resources/dark/icon.svg"
                 },
                 "200%": {
-                    "normal": "resources/dark/icon@2x.png"
+                    "normal": "resources/dark/icon.svg"
                 },
                 "*": {
                     "normal": "resources/dark/icon.svg"
@@ -81,7 +81,7 @@
             "isSystem"            : false,
             "initDataType"        : "none",
             "isUpdateOleOnResize" : false,
-            "size"                : [608, 600],
+            "size"                : [865, 600],
             "buttons"             : []
         }
     ]
