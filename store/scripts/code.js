@@ -62,8 +62,8 @@ let scale = {                                                        // current 
 calculateScale();
 const themeOverrideKey = 'pm_theme_override';
 const contentRemoteBases = [
-	'https://raw.githubusercontent.com/r7-consult/r7c-packages/main/store/resources/content/',
-	'https://raw.githubusercontent.com/r7-consult/r7c-packages/master/store/resources/content/'
+	'https://raw.githubusercontent.com/r7-consult/r7c/main/store/resources/content/',
+	'https://raw.githubusercontent.com/r7-consult/r7c/master/store/resources/content/'
 ];
 const shouldLoadPluginLangs = false;
 const contentLocalBase = './resources/content/';
@@ -371,18 +371,6 @@ function requestRemoveConfirmation(pluginName, onConfirm) {
 
 async function fetchMarkdownWithFallback(fileName, fallbackMarkdown) {
 	let cacheBuster = 'v=' + Date.now();
-	if (isLocal) {
-		try {
-			let localUrl = contentLocalBase + fileName + '?' + cacheBuster;
-			let localResponse = await fetch(localUrl, { cache: 'no-cache' });
-			if (localResponse.ok) {
-				let localText = await localResponse.text();
-				if (localText && localText.trim())
-					return localText;
-			}
-		} catch (e) {
-		}
-	}
 	for (let i = 0; i < contentRemoteBases.length; i++) {
 		let remoteUrl = contentRemoteBases[i] + fileName + '?' + cacheBuster;
 		try {
