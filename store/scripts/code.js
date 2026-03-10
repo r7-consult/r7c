@@ -62,11 +62,11 @@ let scale = {                                                        // current 
 calculateScale();
 const themeOverrideKey = 'pm_theme_override';
 const contentRemoteBases = [
-	'https://raw.githubusercontent.com/r7-consult/r7c/main/store/resources/content/',
-	'https://raw.githubusercontent.com/r7-consult/r7c/master/store/resources/content/'
+	'https://raw.githubusercontent.com/r7-consult/r7c/main/',
+	'https://raw.githubusercontent.com/r7-consult/r7c/master/'
 ];
 const shouldLoadPluginLangs = false;
-const contentLocalBase = './resources/content/';
+const contentLocalBase = '../';
 let popupContentLoaded = false;
 let popupWelcomeLoaded = false;
 let popupLicenseLoaded = false;
@@ -2205,7 +2205,7 @@ function onTranslate() {
 		elements.btnRemoveConfirmOk.innerHTML = getTranslated('Yes');
 	elements.inpSearch.placeholder = getTranslated('Search plugins') + '...';
 	document.getElementById('lbl_header').innerHTML = 'R7 Consult';
-	document.getElementById('lbl_subtitle').innerHTML = 'Каталог и установка плагинов';
+	document.getElementById('lbl_subtitle').innerHTML = getTranslated('Сatalog and installer plugin');
 	let rightsNotice = document.getElementById('lbl_r7c_rights');
 	if (rightsNotice)
 		rightsNotice.innerHTML = getTranslated('Plugin marketplace is powered by R7 Consult. All rights reserved.');

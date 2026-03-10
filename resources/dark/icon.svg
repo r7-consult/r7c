@@ -1,12 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="28" height="16" viewBox="0 0 28 16" fill="none">
-    <defs>
-        <linearGradient id="r7cBadgeDark" x1="3" y1="2" x2="25" y2="14" gradientUnits="userSpaceOnUse">
-            <stop stop-color="#0E639C"/>
-            <stop offset="1" stop-color="#1177BB"/>
-        </linearGradient>
-    </defs>
-    <rect x="0.75" y="0.75" width="26.5" height="14.5" rx="6" fill="url(#r7cBadgeDark)"
-          stroke="rgba(96,159,255,0.55)"/>
-    <text x="14" y="8" text-anchor="middle" dominant-baseline="middle" fill="#FFFFFF"
-          font-family="Segoe UI, Arial, sans-serif" font-size="12.2" font-weight="700">{r7c}</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="28" height="20" viewBox="0 0 28 20" fill="none">
+    <rect x="0.75" y="0.75" width="26.5" height="18.5" rx="7.4" fill="#0E63A0"
+          stroke="#0E63A0"/>
+    <text x="14" y="11" text-anchor="middle" dominant-baseline="middle" fill="#FFFFFF"
+          font-family="Segoe UI, Arial, sans-serif" font-size="12.2" font-weight="700"
+          transform="scale(1,0.9)">{r7c}</text>
 </svg>
