@@ -74,6 +74,7 @@ let selectedLicenseLoaded = false;
 let selectedPluginLicenseKey = '';
 let selectedPluginLicenseSource = '';
 let pendingRemoveAction = null;
+let pendingInstallContext = null;
 const r7cFlyoutLastSeenDateKey = 'r7c_flyout_last_seen_date';
 const fallbackWelcomeMarkdown = [
 	'# Добро пожаловать в R7 Plugin Manager',
@@ -917,6 +918,8 @@ window.addEventListener('message', function(message) {
 				toogleLoader(false);
 				return;
 			}
+			if (pendingInstallContext && pendingInstallContext.guid === message.guid)
+				pendingInstallContext = null;
 			plugin = findPlugin(true, message.guid);
 			installed = findPlugin(false, message.guid);
 			if (!installed && plugin) {
@@ -1026,6 +1029,10 @@ window.addEventListener('message', function(message) {
 			toogleLoader(false);
 			break;
 		case 'Error':
+			if (pendingInstallContext && (!message.guid || message.guid === pendingInstallContext.guid)) {
+				showInstallFailureModal(pendingInstallContext, message.error || message);
+				pendingInstallContext = null;
+			}
 			createError(message.error);
 			toogleLoader(false);
 			break;
@@ -1629,8 +1636,14 @@ async function onClickInstall(target, event) {
 		guid : guid,
 		config : (installed ? installed.obj : plugin)
 	};
+	pendingInstallContext = {
+		guid: guid,
+		label: getPluginLabelByGuid(guid),
+		folder: resolvePluginFolderName(message.config)
+	};
 	let gateResult = await ensureCommercialAccess(message.config);
 	if (gateResult && gateResult.allowed === false) {
+		pendingInstallContext = null;
 		toogleLoader(false);
 		return;
 	}
@@ -2041,6 +2054,94 @@ function createError(err, bDontShow) {
 		divErr.classList.add('hidden');
 	}, 5000);
 };
+
+function resolvePluginFolderName(pluginConfig) {
+	if (!pluginConfig)
+		return '';
+	let rawUrl = pluginConfig.url || pluginConfig.baseUrl || '';
+	let match = String(rawUrl).match(/\/content\/([^\/]+)\//i);
+	if (match && match[1])
+		return match[1];
+	return '';
+}
+
+function buildDeployFallbackUrl(folderName) {
+	if (!folderName)
+		return OOIO;
+	return OOIO + 'tree/main/sdkjs-plugins/content/' + encodeURIComponent(folderName) + '/deploy';
+}
+
+function closeInstallFailureModal() {
+	let modal = document.getElementById('install_failure_modal');
+	if (modal && modal.parentNode)
+		modal.parentNode.removeChild(modal);
+}
+
+function showInstallFailureModal(context, errorPayload) {
+	closeInstallFailureModal();
+	let pluginLabel = (context && context.label) ? context.label : 'этот плагин';
+	let deployUrl = buildDeployFallbackUrl(context ? context.folder : '');
+	let details = '';
+	try {
+		details = JSON.stringify(errorPayload || {}, null, 2);
+	} catch (e) {
+		details = String(errorPayload || 'Unknown error');
+	}
+
+	let overlay = document.createElement('div');
+	overlay.id = 'install_failure_modal';
+	overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+
+	let modal = document.createElement('div');
+	modal.style.cssText = 'width:min(680px,100%);background:var(--pm-card-bg,#1f1f1f);color:var(--pm-text,#fff);border:1px solid var(--pm-border,#3a3a3a);border-radius:12px;box-shadow:0 16px 48px rgba(0,0,0,.35);padding:18px;';
+
+	let title = document.createElement('h3');
+	title.style.cssText = 'margin:0 0 10px 0;font-size:18px;line-height:1.35;';
+	title.textContent = 'Извините, плагин не удалось установить';
+
+	let text = document.createElement('p');
+	text.style.cssText = 'margin:0 0 12px 0;opacity:.95;';
+	text.textContent = 'Плагин "' + pluginLabel + '" не установился. Вы можете скачать готовую сборку вручную из папки deploy.';
+
+	let link = document.createElement('a');
+	link.href = deployUrl;
+	link.target = '_blank';
+	link.rel = 'noopener noreferrer';
+	link.style.cssText = 'display:inline-block;margin:0 0 14px 0;color:#7db7ff;text-decoration:underline;word-break:break-all;';
+	link.textContent = 'Открыть deploy в r7c-packages';
+
+	let detailsWrap = document.createElement('details');
+	detailsWrap.style.cssText = 'margin:0 0 14px 0;';
+	let summary = document.createElement('summary');
+	summary.style.cssText = 'cursor:pointer;user-select:none;';
+	summary.textContent = 'Показать технические детали';
+	let pre = document.createElement('pre');
+	pre.style.cssText = 'margin:8px 0 0 0;max-height:220px;overflow:auto;background:rgba(0,0,0,.25);padding:10px;border-radius:8px;white-space:pre-wrap;word-break:break-word;';
+	pre.textContent = details;
+	detailsWrap.appendChild(summary);
+	detailsWrap.appendChild(pre);
+
+	let actions = document.createElement('div');
+	actions.style.cssText = 'display:flex;justify-content:flex-end;';
+	let closeBtn = document.createElement('button');
+	closeBtn.className = 'btn-text-default';
+	closeBtn.style.cssText = 'padding:8px 14px;border-radius:8px;';
+	closeBtn.textContent = 'Закрыть';
+	closeBtn.onclick = closeInstallFailureModal;
+	actions.appendChild(closeBtn);
+
+	modal.appendChild(title);
+	modal.appendChild(text);
+	modal.appendChild(link);
+	modal.appendChild(detailsWrap);
+	modal.appendChild(actions);
+	overlay.appendChild(modal);
+	overlay.onclick = function(e) {
+		if (e.target === overlay)
+			closeInstallFailureModal();
+	};
+	document.body.appendChild(overlay);
+}
 
 function setDivHeight() {
 	// set height for div with image in preview mode
