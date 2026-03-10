@@ -77,9 +77,9 @@ let pendingRemoveAction = null;
 let pendingInstallContext = null;
 const r7cFlyoutLastSeenDateKey = 'r7c_flyout_last_seen_date';
 const fallbackWelcomeMarkdown = [
-	'# Добро пожаловать в R7 Plugin Manager',
+	'# Добро пожаловать в {r7} consult',
 	'',
-	'R7 Plugin Manager — менеджер установки и обновления плагинов для экосистемы R7.',
+	'{r7} consult — менеджер установки и обновления плагинов для экосистемы {r7}.',
 	'',
 	'- Обновлённый интерфейс в стиле VS Code',
 	'- Быстрый поиск и предпросмотр плагинов',
@@ -2305,11 +2305,11 @@ function onTranslate() {
 	if (elements.btnRemoveConfirmOk)
 		elements.btnRemoveConfirmOk.innerHTML = getTranslated('Yes');
 	elements.inpSearch.placeholder = getTranslated('Search plugins') + '...';
-	document.getElementById('lbl_header').innerHTML = 'R7 Consult';
+	document.getElementById('lbl_header').innerHTML = '{r7} consult';
 	document.getElementById('lbl_subtitle').innerHTML = getTranslated('Сatalog and installer plugin');
 	let rightsNotice = document.getElementById('lbl_r7c_rights');
 	if (rightsNotice)
-		rightsNotice.innerHTML = getTranslated('Plugin marketplace is powered by R7 Consult. All rights reserved.');
+		rightsNotice.innerHTML = getTranslated('Plugin marketplace is powered by {r7} consult. All rights reserved.');
 	document.getElementById('span_offered_caption').innerHTML = getTranslated('Offered by') + ' ';
 	document.getElementById('span_overview').innerHTML = getTranslated('Overview');
 	document.getElementById('span_info').innerHTML = getTranslated('Info & Support');

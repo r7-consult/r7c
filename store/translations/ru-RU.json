@@ -1,6 +1,6 @@
 {
   "Manage plugins": "Управление плагинами",
-  "R7 Plugin Manager": "R7 Плагин Менеджер",
+  "R7 Plugin Manager": "{r7} consult",
   "Сatalog and installer plugin": "Каталог и установка плагинов",
   "Catalog": "Каталог",
   "Installed": "Установленные",
@@ -28,7 +28,7 @@
   "Remove": "Удалить",
   "Update": "Обновить",
   "Commercial": "Коммерческий",
-  "Plugin marketplace is powered by R7 Consult. All rights reserved.": "Плагин-маркетплейс работает на базе R7 Consult. Все права защищены.",
+  "Plugin marketplace is powered by {r7} consult. All rights reserved.": "Плагин-маркетплейс работает на базе {r7} consult. Все права защищены.",
   "Offered by": "Предложено",
   "Overview": "Обзор",
   "Info & Support": "Информация & Поддержка",
