@@ -2294,6 +2294,38 @@ function getIconNormalByScale(iconSet) {
 	return '';
 }
 
+function buildStoreIconCandidates(baseUrl, rawPath, iconScale) {
+	if (!rawPath)
+		return [baseUrl + iconScale];
+	let normalized = String(rawPath);
+	let exactUrl = baseUrl + normalized;
+	if (/\.[a-z0-9]+(?:\?.*)?$/i.test(normalized))
+		return [exactUrl];
+	let folder = normalized.replace(/\/+$/, '');
+	let scaledUrl = baseUrl + folder + iconScale;
+	if (scaledUrl === exactUrl)
+		return [scaledUrl];
+	return [scaledUrl, exactUrl];
+}
+
+function applyIconSizeFromBlob(id, blob) {
+	let reader = new FileReader();
+	reader.onloadend = function() {
+		let imageUrl = reader.result;
+		let img = document.createElement('img');
+		img.setAttribute('src', imageUrl);
+		img.onload = function () {
+			let icon = document.getElementById(id);
+			if (!icon)
+				return;
+			icon.style.width = ( (img.width/scale.value) >> 0 ) + 'px';
+			icon.style.height = ( (img.height/scale.value) >> 0 ) + 'px';
+			icon.style.display = '';
+		}
+	};
+	reader.readAsDataURL(blob);
+}
+
 function getImageUrl(guid, bNotForStore, bSetSize, id) {
 	// get icon url for current plugin (according to theme and scale)
 	let iconScale = '/icon.png';
@@ -2335,11 +2367,13 @@ function getImageUrl(guid, bNotForStore, bSetSize, id) {
 	// github doesn't allow to use "http" or "file" as the URL for an image
 	if ( plugin && ( baseUrl.includes('https://') || isLocal) ) {
 		let variation = plugin.variations[0];
+		let iconCandidates = null;
 		
 		if (!bNotForStore && variation.store && variation.store.icons) {
 			// icons are in config of store field (work only with new scheme)
 			// it's an object with 2 fields (for dark and light theme), which contain route to icons folder
-			curIcon = baseUrl + variation.store.icons[themeType] + iconScale;
+			iconCandidates = buildStoreIconCandidates(baseUrl, variation.store.icons[themeType], iconScale);
+			curIcon = iconCandidates[0] || curIcon;
 		} else if (variation.icons2) {
 			// it's old scheme. There could be an array with objects which have theme field or an array from one object without theme field
 			let icon = variation.icons2[0];
@@ -2358,7 +2392,8 @@ function getImageUrl(guid, bNotForStore, bSetSize, id) {
 			// there will be a object with 2 fields (for dark and light theme), which contain route to icons folder (new scheme)
 			if (!Array.isArray(variation.icons)) {
 				// new scheme
-				curIcon = baseUrl + variation.icons[themeType] + iconScale;
+				iconCandidates = buildStoreIconCandidates(baseUrl, variation.icons[themeType], iconScale);
+				curIcon = iconCandidates[0] || curIcon;
 			} else {
 				// old scheme
 				if (typeof(variation.icons[0]) == 'object' ) {
@@ -2383,27 +2418,37 @@ function getImageUrl(guid, bNotForStore, bSetSize, id) {
 				}
 			}
 		}	
+		if (iconCandidates && iconCandidates[1]) {
+			let fallbackIcon = iconCandidates[1];
+			let currentIcon = curIcon;
+			if (bSetSize && id) {
+				makeRequest(currentIcon, 'GET', 'blob', null, true).then(
+					function (res) {
+						applyIconSizeFromBlob(id, res);
+					},
+					function() {
+						let icon = document.getElementById(id);
+						if (icon)
+							icon.setAttribute('src', fallbackIcon);
+						makeRequest(fallbackIcon, 'GET', 'blob', null, true).then(
+							function(res) {
+								applyIconSizeFromBlob(id, res);
+							},
+							function() {
+								// both icon variants are unavailable
+							}
+						);
+					}
+				);
+				return curIcon;
+			}
+		}
 	}
 
 	if (bSetSize) {
 		makeRequest(curIcon, 'GET', 'blob', null, true).then(
 			function (res) {
-				let reader = new FileReader();
-				reader.onloadend = function() {
-					let imageUrl = reader.result;		
-					let img = document.createElement('img');
-					img.setAttribute('src', imageUrl);
-					img.onload = function () {
-						let icon = document.getElementById(id);
-						if (!icon)
-							return;
-						icon.style.width = ( (img.width/scale.value) >> 0 ) + 'px';
-						icon.style.height = ( (img.height/scale.value) >> 0 ) + 'px';
-						icon.style.display = '';
-					}
-					
-				}
-				reader.readAsDataURL(res);
+				applyIconSizeFromBlob(id, res);
 			},
 			function(error) {
 				// optional image prefetch for sizing can fail on missing icon variants; keep default sizing silently
