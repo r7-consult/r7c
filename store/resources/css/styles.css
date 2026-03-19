@@ -1021,6 +1021,12 @@ body.telegram-gate-lock {
     background: var(--vscode-list-activeSelectionBackground);
 }
 
+.card_status.status_update {
+    color: #ffffff;
+    border-color: var(--pm-accent-2);
+    background: var(--pm-accent-2);
+}
+
 .card_status.status_commercial {
 	color: #ffffff;
 	border-color: #9a6d00;
@@ -1044,15 +1050,6 @@ body.telegram-gate-lock {
 
 .advanced_info {
     display: none;
-}
-
-.span_update {
-    align-self: flex-end;
-    background-color: var(--pm-accent-2);
-    color: #ffffff;
-    font-size: 10px !important;
-    padding: 2px 6px;
-    border-radius: 3px;
 }
 
 .div_selected_toolbar {
