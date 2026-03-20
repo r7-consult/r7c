@@ -101,30 +101,12 @@ function normalizeThemeType(type) {
 	return (type && type.includes('dark')) ? 'dark' : 'light';
 }
 
-function normalizeInstalledBaseUrl(url) {
-	if (!url || typeof url !== 'string')
-		return '';
-	let normalized = url;
-	try {
-		normalized = decodeURIComponent(normalized);
-	} catch (e) {
-	}
-	normalized = normalized.replace(/^file:\/+/, '');
-	if (/^\/[a-z]:/i.test(normalized))
-		normalized = normalized.slice(1);
-	return normalized.replace(/\\/g, '/').toLowerCase();
-}
-
-function isBuiltinEditorPlugin(installed) {
-	if (!installed || !installed.obj)
+function isMarketplaceManagedInstalledPlugin(installed, bIncludeRemoved) {
+	if (!installed)
 		return false;
-	let baseUrl = normalizeInstalledBaseUrl(installed.obj.baseUrl || installed.baseUrl || '');
-	if (!baseUrl)
-		return false;
-	return baseUrl.indexOf('/program files/r7-office/editors/editors/sdkjs-plugins/') !== -1
-		|| baseUrl.indexOf('/program files (x86)/r7-office/editors/editors/sdkjs-plugins/') !== -1
-		|| baseUrl.indexOf('/program files/onlyoffice/desktopeditors/editors/sdkjs-plugins/') !== -1
-		|| baseUrl.indexOf('/program files (x86)/onlyoffice/desktopeditors/editors/sdkjs-plugins/') !== -1;
+	if (installed.removed)
+		return !!bIncludeRemoved && installed.canRemoved !== false;
+	return installed.canRemoved !== false;
 }
 
 function getThemeOverride() {
@@ -918,12 +900,14 @@ window.addEventListener('message', function(message) {
 	switch (message.type) {
 		case 'InstalledPlugins':
 			if (message.data) {
-				// filter installed plugins (delete removed, that are in store and some system plugins)
+				// Keep only marketplace-managed/user-installed plugins.
+				// Guarded/system plugins may be returned by the editor too, but we should not
+				// show them as installed in the custom marketplace UI.
 				installedPlugins = message.data.filter(function(el) {
 					return (el.guid !== guidMarkeplace
 						&& el.guid !== guidSettings
 						&& !( el.removed && el.obj.baseUrl.includes(ioUrl) )
-						&& !isBuiltinEditorPlugin(el));
+						&& isMarketplaceManagedInstalledPlugin(el, true));
 				});
 				sortPlugins(false, true, 'start');
 			} else {
@@ -1508,7 +1492,7 @@ function getPluginVersion(text) {
 function hasPluginUpdate(plugin, installed, bNotAvailable) {
 	if (bNotAvailable || !plugin || !installed || !installed.obj)
 		return false;
-	if (installed.guid !== plugin.guid || installed.removed)
+	if (installed.guid !== plugin.guid || !isMarketplaceManagedInstalledPlugin(installed))
 		return false;
 
 	let installedVersion = getPluginVersion(installed.obj.version);
@@ -1592,7 +1576,7 @@ function createPluginDiv(plugin, bInstalled) {
 	let versionLabel = plugin.version ? ('v' + plugin.version) : '';
 	let typeLabel = getPluginTypeLabel(plugin, variation);
 	let isCommercial = isCommercialPluginConfig(plugin);
-	let isInstalled = (installed && !bRemoved);
+	let isInstalled = bInstalled ? (installed && !bRemoved) : isMarketplaceManagedInstalledPlugin(installed);
 	let statusText = isCommercial
 		? getTranslated('Commercial')
 		: getTranslated(bHasUpdate ? messages.updateAvailable : (isInstalled ? 'Installed' : 'Not installed'));
@@ -1855,7 +1839,9 @@ function onClickItem() {
 
 	let installed = findPlugin(false, guid);
 	let plugin = findPlugin(true, guid);
-	let isCommercial = isCommercialPluginConfig(plugin || (installed ? installed.obj : null));
+	let isMarketplaceView = elements.btnMarketplace && elements.btnMarketplace.classList.contains('btn_toolbar_active');
+	let currentInstalled = (isMarketplaceView && !isMarketplaceManagedInstalledPlugin(installed)) ? null : installed;
+	let isCommercial = isCommercialPluginConfig(plugin || (currentInstalled ? currentInstalled.obj : null));
 	let discussionUrl = plugin ? plugin.discussionUrl : null;
 	
 	if (plugin && plugin.rating) {
@@ -1876,9 +1862,9 @@ function onClickItem() {
 		elements.discussionLink.classList.add('hidden');
 	}
 
-	if ( !plugin || ( isLocal && installed && plugin.baseUrl.includes('file:') ) ) {
+	if ( !plugin || ( isLocal && currentInstalled && plugin.baseUrl.includes('file:') ) ) {
 		elements.divGitLink.classList.add('hidden');
-		plugin = installed.obj;
+		plugin = currentInstalled.obj;
 	} else {
 		elements.divGitLink.classList.remove('hidden');
 	}
@@ -1924,11 +1910,11 @@ function onClickItem() {
 		elements.arrowNext.classList.add('hidden');
 	}
 
-	let bHasUpdate = !!(plugin && plugin.bHasUpdate && installed && !installed.removed);
+	let bHasUpdate = !!(plugin && plugin.bHasUpdate && currentInstalled && !currentInstalled.removed);
 	let typeLabel = getPluginTypeLabel(plugin, plugin.variations[0]);
 	
-	if ( (installed && installed.obj.version) || plugin.version ) {
-		elements.spanVersion.innerText = (installed && installed.obj.version ? installed.obj.version : plugin.version);
+	if ( (currentInstalled && currentInstalled.obj.version) || plugin.version ) {
+		elements.spanVersion.innerText = (currentInstalled && currentInstalled.obj.version ? currentInstalled.obj.version : plugin.version);
 		elements.divVersion.classList.remove('hidden');
 	} else {
 		elements.spanVersion.innerText = '';
@@ -1936,8 +1922,8 @@ function onClickItem() {
 		hiddenCounter++;
 	}
 
-	if ( (installed && installed.obj.minVersion) || plugin.minVersion ) {
-		elements.spanMinVersion.innerText = (installed && installed.obj.minVersion ? installed.obj.minVersion : plugin.minVersion);
+	if ( (currentInstalled && currentInstalled.obj.minVersion) || plugin.minVersion ) {
+		elements.spanMinVersion.innerText = (currentInstalled && currentInstalled.obj.minVersion ? currentInstalled.obj.minVersion : plugin.minVersion);
 		elements.divMinVersion.classList.remove('hidden');
 	} else {
 		elements.spanMinVersion.innerText = '';
@@ -2005,8 +1991,8 @@ function onClickItem() {
 				onClickLearnMore(event.currentTarget, event);
 			};
 		}
-	} else if (installed && !installed.removed) {
-		if (installed.canRemoved) {
+	} else if (currentInstalled && !currentInstalled.removed) {
+		if (currentInstalled.canRemoved) {
 			elements.btnRemove.classList.remove('hidden');
 		} else {
 			elements.btnRemove.classList.add('hidden');
@@ -2819,7 +2805,7 @@ function changeAfterInstallOrRemove(bInstall, guid, bHasLocal) {
 		plugin = installedRef ? installedRef.obj : null;
 	}
 	let installed = findPlugin(false, guid);
-	let bHasUpdate = !!(plugin && plugin.bHasUpdate && installed && !installed.removed && bInstall);
+	let bHasUpdate = !!(plugin && plugin.bHasUpdate && isMarketplaceManagedInstalledPlugin(installed) && bInstall);
 	if (isCommercialPluginConfig(plugin)) {
 		if (status) {
 			status.innerHTML = getTranslated('Commercial');
