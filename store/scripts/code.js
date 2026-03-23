@@ -2714,6 +2714,10 @@ function sortPlugins(bAll, bInst, type) {
 		default:
 			if (bAll) {
 				allPlugins.sort(function(a, b) {
+					let priorityA = getPluginStorePriority(a);
+					let priorityB = getPluginStorePriority(b);
+					if (priorityB !== priorityA)
+						return priorityB - priorityA;
 					return a.name.localeCompare(b.name);
 				});
 			}
@@ -2724,6 +2728,12 @@ function sortPlugins(bAll, bInst, type) {
 			}
 			break;
 	}
+};
+
+function getPluginStorePriority(plugin) {
+	let variation = plugin && plugin.variations && plugin.variations[0];
+	let priority = variation && variation.store ? Number(variation.store.priority) : 0;
+	return isNaN(priority) ? 0 : priority;
 };
 
 function makeSearch(val) {
