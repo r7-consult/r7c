@@ -1,4 +1,4 @@
-# {r7} Plugin Manager
+# {r7} plugin manager
 
 ## О проекте
 
