@@ -148,6 +148,14 @@
 					postMessage(result);
 				});
 				break;
+			case 'updateStore':
+				window.Asc.plugin.executeMethod('UpdatePlugin', [data.url], function(result) {
+					postMessage({ type: 'StoreUpdated', result: result });
+				});
+				break;
+			case 'closePlugin':
+				window.Asc.plugin.executeCommand('close', '');
+				break;
 			case 'showButton' :
 				window.Asc.plugin.executeMethod('ShowButton',['back', true]);
 				break;

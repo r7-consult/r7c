@@ -49,12 +49,23 @@
 			<div class="brand">
 				<div class="brand_badge">{r7с}</div>
 				<div class="brand_text">
-					<div id="lbl_header" class="aboutlable header_title">{r7} consult</div>
+					<div class="header_title_row">
+						<div id="lbl_header" class="aboutlable header_title">{r7} consult</div>
+						<span id="store_version" class="store_version hidden">v0.0.0</span>
+						<span id="store_update_badge" class="store_update_badge hidden">Update available</span>
+					</div>
 					<div id="lbl_subtitle" class="header_subtitle">Каталог и установка плагинов</div>
 					<div id="lbl_r7c_rights" class="header_notice">Плагин-маркетплейс работает на базе {r7} consult. Все права защищены.</div>
 				</div>
 			</div>
 			<div class="header_actions">
+				<button id="btn_store_update" class="btn_icon btn_store_update hidden" type="button" aria-label="Update" title="Update">
+					<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+						<path d="M12 4v10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+						<path d="M8 11l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+						<path d="M5 19h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+					</svg>
+				</button>
 				<button id="btn_reload" class="btn_icon" type="button" aria-label="Reload" title="Reload">
 					<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
 						<path d="M20 11a8 8 0 1 1-2.34-5.66" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
@@ -234,6 +245,15 @@
 				<div class="remove_confirm_actions">
 					<button id="btn_remove_confirm_cancel" class="btn_action" type="button">No</button>
 					<button id="btn_remove_confirm_ok" class="btn_action" type="button">Yes</button>
+				</div>
+			</div>
+		</div>
+		<div id="store_update_overlay" class="remove_confirm_overlay hidden" data-testid="store-update-overlay">
+			<div class="remove_confirm_modal" role="dialog" aria-modal="true" aria-labelledby="store_update_title">
+				<div id="store_update_title" class="remove_confirm_title">Update</div>
+				<div id="store_update_text" class="remove_confirm_text">Update result</div>
+				<div class="remove_confirm_actions">
+					<button id="btn_store_update_ok" class="btn_action" type="button">OK</button>
 				</div>
 			</div>
 		</div>

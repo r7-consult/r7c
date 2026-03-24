@@ -24,6 +24,7 @@ let isOnline = true;                                                 // flag int
 isLocal && checkInternet();                                          // check internet connection (only for desktop)
 let interval = null;                                                 // interval for checking internet connection (if it doesn't work on launch)
 const OOMarketplaceUrl = 'https://raw.githubusercontent.com/r7-consult/r7c-packages/main/';            // url to store (for local version store in desktop)
+const OOStoreUpdateUrl = 'https://raw.githubusercontent.com/r7-consult/r7c/main/';                        // url to store plugin update source
 const OOIO = 'https://github.com/r7-consult/r7c-packages/';                       // url to github repository (for links and discussions)
 const discussionsUrl = OOIO + 'discussions/';                        // discussions url
 let searchTimeout = null;                                            // timeot for search
@@ -60,6 +61,8 @@ let scale = {                                                        // current 
 	devicePR : 1                                                     // device pixel ratio
 };
 calculateScale();
+const storeLocalConfigUrl = '../config.json';
+const storeRemoteConfigUrl = OOStoreUpdateUrl + 'config.json';
 const themeOverrideKey = 'pm_theme_override';
 const contentRemoteBases = [
 	'https://raw.githubusercontent.com/r7-consult/r7c/main/',
@@ -67,6 +70,13 @@ const contentRemoteBases = [
 ];
 const shouldLoadPluginLangs = false;
 const contentLocalBase = '../';
+let storeLocalVersion = '';
+let storeRemoteVersion = '';
+let storeLocalGuid = '';
+let storeRemoteGuid = '';
+let storeHasUpdate = false;
+let storeUpdateGuidMismatch = false;
+let closeAfterStoreUpdateModal = false;
 let popupContentLoaded = false;
 let popupWelcomeLoaded = false;
 let popupLicenseLoaded = false;
@@ -96,6 +106,7 @@ const fallbackLicenseMarkdown = [
 	'Не удалось загрузить LICENSE.md удалённо.',
 	'Показан fallback из встроенной версии плагина.'
 ].join('\n');
+const storeUpdateManifestName = 'store-update-manifest.json';
 
 function normalizeThemeType(type) {
 	return (type && type.includes('dark')) ? 'dark' : 'light';
@@ -378,6 +389,552 @@ function requestRemoveConfirmation(pluginName, onConfirm) {
 	elements.removeConfirmOverlay.classList.remove('hidden');
 }
 
+function hideStoreUpdateModal() {
+	if (elements.storeUpdateOverlay)
+		elements.storeUpdateOverlay.classList.add('hidden');
+	if (closeAfterStoreUpdateModal)
+		closeStorePluginWindow();
+	closeAfterStoreUpdateModal = false;
+}
+
+function showStoreUpdateModal(titleText, bodyText, shouldCloseAfterOk) {
+	closeAfterStoreUpdateModal = !!shouldCloseAfterOk;
+	if (!elements.storeUpdateOverlay || !elements.storeUpdateTitle || !elements.storeUpdateText)
+		return;
+	elements.storeUpdateTitle.innerHTML = getTranslated(titleText);
+	elements.storeUpdateText.innerHTML = getTranslated(bodyText);
+	elements.storeUpdateOverlay.classList.remove('hidden');
+}
+
+function updateStoreHeaderVersionUI() {
+	if (elements.storeVersion) {
+		if (storeLocalVersion) {
+			elements.storeVersion.innerHTML = 'v' + storeLocalVersion;
+			elements.storeVersion.classList.remove('hidden');
+		} else {
+			elements.storeVersion.classList.add('hidden');
+		}
+	}
+	if (elements.storeUpdateBadge) {
+		elements.storeUpdateBadge.innerHTML = getTranslated(messages.updateAvailable);
+		elements.storeUpdateBadge.classList.toggle('hidden', !storeHasUpdate);
+	}
+	if (elements.btnStoreUpdate) {
+		elements.btnStoreUpdate.classList.toggle('hidden', !storeHasUpdate);
+		elements.btnStoreUpdate.title = getTranslated('Update');
+		elements.btnStoreUpdate.setAttribute('aria-label', getTranslated('Update'));
+	}
+}
+
+async function loadStoreUpdateState() {
+	storeHasUpdate = false;
+	storeRemoteVersion = '';
+	storeLocalGuid = '';
+	storeRemoteGuid = '';
+	storeUpdateGuidMismatch = false;
+	try {
+		let localConfigText = await makeRequest(storeLocalConfigUrl, 'GET', null, null, true);
+		let localConfig = JSON.parse(localConfigText);
+		storeLocalVersion = localConfig && localConfig.version ? localConfig.version : '';
+		storeLocalGuid = localConfig && localConfig.guid ? localConfig.guid : '';
+	} catch (e) {
+		storeLocalVersion = '';
+		storeLocalGuid = '';
+	}
+	updateStoreHeaderVersionUI();
+	try {
+		let remoteConfigText = await makeRequest(storeRemoteConfigUrl, 'GET', null, null, true);
+		let remoteConfig = JSON.parse(remoteConfigText);
+		storeRemoteVersion = remoteConfig && remoteConfig.version ? remoteConfig.version : '';
+		storeRemoteGuid = remoteConfig && remoteConfig.guid ? remoteConfig.guid : '';
+		storeUpdateGuidMismatch = !!(storeLocalGuid && storeRemoteGuid && storeLocalGuid !== storeRemoteGuid);
+		storeHasUpdate = !!(!storeUpdateGuidMismatch && storeLocalVersion && storeRemoteVersion && getPluginVersion(storeRemoteVersion) > getPluginVersion(storeLocalVersion));
+	} catch (e) {
+		storeRemoteVersion = '';
+		storeRemoteGuid = '';
+		storeHasUpdate = false;
+		storeUpdateGuidMismatch = false;
+	}
+	updateStoreHeaderVersionUI();
+}
+
+function uniqueArray(items) {
+	let seen = Object.create(null);
+	let result = [];
+	(items || []).forEach(function(item) {
+		let value = String(item || '');
+		if (!value || seen[value])
+			return;
+		seen[value] = true;
+		result.push(value);
+	});
+	return result;
+};
+
+function sortByDepthDesc(items) {
+	return (items || []).slice().sort(function(left, right) {
+		return String(right || '').length - String(left || '').length;
+	});
+};
+
+function normalizeSlashes(value) {
+	return String(value || '').replace(/\\/g, '/');
+};
+
+function trimSlashes(value) {
+	return normalizeSlashes(value).replace(/^\/+|\/+$/g, '');
+};
+
+function joinUrlPath() {
+	let parts = [];
+	for (let i = 0; i < arguments.length; i += 1) {
+		let part = trimSlashes(arguments[i]);
+		if (part)
+			parts.push(part);
+	}
+	return parts.join('/');
+};
+
+function escapeRegExp(value) {
+	return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
+function joinNativePath(base) {
+	let filePath = String(base || '');
+	let separator = filePath.indexOf('\\') !== -1 ? '\\' : '/';
+	for (let i = 1; i < arguments.length; i += 1) {
+		let segment = String(arguments[i] || '');
+		if (!segment)
+			continue;
+		segment = segment.replace(/[\\/]+/g, separator).replace(new RegExp('^' + escapeRegExp(separator) + '+|' + escapeRegExp(separator) + '+$', 'g'), '');
+		if (!segment)
+			continue;
+		if (!filePath) {
+			filePath = segment;
+			continue;
+		}
+		if (filePath.slice(-1) !== separator)
+			filePath += separator;
+		filePath += segment;
+	}
+	return filePath;
+};
+
+function dirnameNative(filePath) {
+	return String(filePath || '').replace(/[\\/][^\\/]+$/, '');
+};
+
+function buildFileUrl(filePath, isDirectory) {
+	let normalized = normalizeSlashes(filePath);
+	if (isDirectory && normalized.slice(-1) !== '/')
+		normalized += '/';
+	if (/^[A-Za-z]:\//.test(normalized))
+		return 'file:///' + encodeURI(normalized);
+	if (normalized.indexOf('/') === 0)
+		return 'file://' + encodeURI(normalized);
+	return 'file:///' + encodeURI(normalized);
+};
+
+function encodeUtf8ToBase64(rawText) {
+	let bytes = new TextEncoder().encode(String(rawText == null ? '' : rawText));
+	let binary = '';
+	for (let i = 0; i < bytes.length; i += 1)
+		binary += String.fromCharCode(bytes[i]);
+	return window.btoa(binary);
+};
+
+function arrayBufferToBase64(buffer) {
+	let bytes = new Uint8Array(buffer);
+	let binary = '';
+	for (let i = 0; i < bytes.length; i += 1)
+		binary += String.fromCharCode(bytes[i]);
+	return window.btoa(binary);
+};
+
+function fetchText(url, headers) {
+	return window.fetch(url, {
+		method: 'GET',
+		headers: headers || {},
+		cache: 'no-cache'
+	}).then(function(response) {
+		if (!response.ok)
+			throw new Error('HTTP ' + response.status + ' for ' + url);
+		return response.text();
+	});
+};
+
+function fetchArrayBuffer(url, headers) {
+	return window.fetch(url, {
+		method: 'GET',
+		headers: headers || {},
+		cache: 'no-cache'
+	}).then(function(response) {
+		if (!response.ok)
+			throw new Error('HTTP ' + response.status + ' for ' + url);
+		return response.arrayBuffer();
+	});
+};
+
+function parseJsonText(text, label) {
+	try {
+		return JSON.parse(text);
+	} catch (error) {
+		throw new Error('Не удалось разобрать JSON ' + label + ': ' + error.message);
+	}
+};
+
+function hasDesktopBridge() {
+	return !!(window.AscDesktopEditor && typeof window.AscDesktopEditor.execCommand === 'function');
+};
+
+function execKznUnit(method, args) {
+	if (!hasDesktopBridge())
+		throw new Error('Desktop bridge недоступен');
+	let payload = {
+		method: method,
+		args: args || {}
+	};
+	let raw = window.AscDesktopEditor.execCommand('kzn_unit', JSON.stringify(payload));
+	if (!raw)
+		return null;
+	if (typeof raw === 'object')
+		return raw;
+	try {
+		return JSON.parse(raw);
+	} catch (e) {
+		return raw;
+	}
+};
+
+function existsLocalPath(filePath) {
+	if (!filePath || !hasDesktopBridge())
+		return false;
+	let result = execKznUnit('exists', {
+		file: encodeUtf8ToBase64(filePath)
+	});
+	return !!(result && result.data);
+};
+
+function readLocalTextFile(filePath, isDirectory) {
+	if (!filePath)
+		return Promise.reject(new Error('Путь к локальному файлу не определен'));
+	return fetch(buildFileUrl(filePath, !!isDirectory), { cache: 'no-cache' }).then(function(response) {
+		if (!response.ok && response.status !== 0)
+			throw new Error('HTTP ' + response.status + ' for ' + filePath);
+		return response.text();
+	});
+};
+
+function readLocalJsonFile(filePath) {
+	return readLocalTextFile(filePath, false).then(function(text) {
+		return parseJsonText(text, filePath);
+	});
+};
+
+function writeBase64File(filePath, base64Data) {
+	if (!hasDesktopBridge())
+		throw new Error('Desktop bridge недоступен для записи');
+	let result = execKznUnit('save_file', {
+		file: encodeUtf8ToBase64(filePath),
+		data: String(base64Data || '')
+	});
+	if (result && result.error)
+		throw new Error('save_file failed: ' + result.error);
+};
+
+function writeBinaryFile(filePath, buffer) {
+	writeBase64File(filePath, arrayBufferToBase64(buffer));
+};
+
+function removeLocalFile(filePath) {
+	if (!filePath || !existsLocalPath(filePath))
+		return false;
+	if (window.AscDesktopEditor && typeof window.AscDesktopEditor.RemoveFile === 'function') {
+		window.AscDesktopEditor.RemoveFile(filePath);
+		return true;
+	}
+	throw new Error('AscDesktopEditor.RemoveFile недоступен');
+};
+
+function buildDirectoryVariants(directoryPath) {
+	if (!directoryPath)
+		return [];
+	let trimmed = String(directoryPath).replace(/[\\/]+$/, '');
+	if (!trimmed)
+		return [String(directoryPath)];
+	return uniqueArray([
+		trimmed,
+		trimmed + '\\',
+		trimmed + '/'
+	]);
+};
+
+function removeLocalDirectory(directoryPath) {
+	let variants = buildDirectoryVariants(directoryPath);
+	let existingVariants = [];
+	variants.forEach(function(variant) {
+		if (existsLocalPath(variant))
+			existingVariants.push(variant);
+	});
+	if (!existingVariants.length)
+		return false;
+	if (window.AscDesktopEditor && typeof window.AscDesktopEditor.RemoveFile === 'function') {
+		for (let i = 0; i < existingVariants.length; i += 1) {
+			try {
+				window.AscDesktopEditor.RemoveFile(existingVariants[i]);
+			} catch (e) {
+			}
+		}
+		let removedAfterDirect = existingVariants.every(function(variant) {
+			return !existsLocalPath(variant);
+		});
+		if (removedAfterDirect)
+			return true;
+	}
+	let methods = ['remove_dir', 'delete_dir', 'rmdir', 'remove_file', 'delete_file', 'delete', 'unlink'];
+	let argNames = ['dir', 'path', 'file'];
+	for (let methodIndex = 0; methodIndex < methods.length; methodIndex += 1) {
+		for (let variantIndex = 0; variantIndex < existingVariants.length; variantIndex += 1) {
+			for (let argIndex = 0; argIndex < argNames.length; argIndex += 1) {
+				try {
+					let args = {};
+					args[argNames[argIndex]] = encodeUtf8ToBase64(existingVariants[variantIndex]);
+					execKznUnit(methods[methodIndex], args);
+				} catch (e) {
+				}
+				let removed = existingVariants.every(function(variant) {
+					return !existsLocalPath(variant);
+				});
+				if (removed)
+					return true;
+			}
+		}
+	}
+	throw new Error('Не удалось удалить директорию через доступные bridge методы');
+};
+
+function deriveDirectoriesFromFiles(files) {
+	let directories = [];
+	(files || []).forEach(function(filePath) {
+		let normalized = normalizeSlashes(filePath);
+		let parts = normalized.split('/');
+		parts.pop();
+		let current = '';
+		parts.forEach(function(part) {
+			if (!part)
+				return;
+			current = current ? (current + '/' + part) : part;
+			directories.push(current);
+		});
+	});
+	return sortByDepthDesc(uniqueArray(directories));
+};
+
+function shouldSkipStoreUpdatePath(relativePath) {
+	let normalized = trimSlashes(relativePath);
+	if (!normalized)
+		return true;
+	if (normalized === storeUpdateManifestName)
+		return true;
+	if (/^\.git(?:\/|$)/.test(normalized))
+		return true;
+	if (/^\.agent(?:\/|$)/.test(normalized))
+		return true;
+	if (/^temp(?:\/|$)/.test(normalized))
+		return true;
+	if (/^node_modules(?:\/|$)/.test(normalized))
+		return true;
+	if (/\.plugin$/i.test(normalized))
+		return true;
+	if (/^build-plugin\.bat$/i.test(normalized))
+		return true;
+	return false;
+};
+
+function getStorePluginRootPath() {
+	let currentUrl = new URL(window.location.href);
+	if (currentUrl.protocol !== 'file:')
+		throw new Error('Store self-update работает только для file:// runtime');
+	let filePath = decodeURIComponent(currentUrl.pathname || '');
+	if (/^\/[A-Za-z]:\//.test(filePath))
+		filePath = filePath.slice(1).replace(/\//g, '\\');
+	else
+		filePath = filePath.replace(/\//g, '/');
+	return dirnameNative(dirnameNative(filePath));
+};
+
+function getStoreUpdateManifestPath(pluginRootPath) {
+	return joinNativePath(pluginRootPath, storeUpdateManifestName);
+};
+
+function getStoreUpdateGitHubContext() {
+	let rawUrl = String(OOStoreUpdateUrl || '').trim();
+	let match = rawUrl.match(/^https:\/\/raw\.githubusercontent\.com\/([^\/]+)\/([^\/]+)\/(.+)$/i);
+	if (!match)
+		throw new Error('Store update source must be a raw.githubusercontent.com URL');
+	let owner = match[1];
+	let repo = match[2];
+	let tail = trimSlashes(match[3] || '');
+	let branch = '';
+	let basePath = '';
+
+	if (tail.indexOf('refs/heads/') === 0) {
+		let refsParts = tail.split('/').filter(Boolean);
+		branch = refsParts[2] || '';
+		basePath = trimSlashes(refsParts.slice(3).join('/'));
+	} else {
+		let parts = tail.split('/').filter(Boolean);
+		branch = parts[0] || '';
+		basePath = trimSlashes(parts.slice(1).join('/'));
+	}
+
+	if (!branch)
+		throw new Error('Store update branch is not resolved');
+	return {
+		owner: owner,
+		repo: repo,
+		branch: branch,
+		basePath: basePath,
+		rawBaseUrl: 'https://raw.githubusercontent.com/' + owner + '/' + repo + '/' + branch,
+		treeApiUrl: 'https://api.github.com/repos/' + owner + '/' + repo + '/git/trees/' + encodeURIComponent(branch) + '?recursive=1'
+	};
+};
+
+function readStoreUpdateManifest(manifestPath) {
+	if (!existsLocalPath(manifestPath))
+		return Promise.resolve(null);
+	return readLocalJsonFile(manifestPath).catch(function() {
+		return null;
+	});
+};
+
+function collectStoreRemoteFiles(context) {
+	return fetchText(context.treeApiUrl, {
+		Accept: 'application/vnd.github+json'
+	}).then(function(text) {
+		let payload = parseJsonText(text, context.treeApiUrl);
+		if (!payload || !Array.isArray(payload.tree))
+			throw new Error('Unexpected GitHub tree payload');
+		let files = [];
+		payload.tree.forEach(function(item) {
+			if (!item || item.type !== 'blob' || !item.path)
+				return;
+			let normalizedPath = trimSlashes(item.path);
+			if (context.basePath) {
+				if (normalizedPath !== context.basePath && normalizedPath.indexOf(context.basePath + '/') !== 0)
+					return;
+				normalizedPath = trimSlashes(normalizedPath.slice(context.basePath.length));
+			}
+			if (shouldSkipStoreUpdatePath(normalizedPath))
+				return;
+			files.push({
+				relativePath: normalizedPath,
+				downloadUrl: encodeURI(context.rawBaseUrl + '/' + joinUrlPath(context.basePath, normalizedPath))
+			});
+		});
+		return files;
+	});
+};
+
+function cleanupStoreRemovedPaths(pluginRootPath, previousManifest, currentFiles) {
+	if (!previousManifest || !Array.isArray(previousManifest.files))
+		return;
+	let currentSet = Object.create(null);
+	currentFiles.forEach(function(filePath) {
+		currentSet[normalizeSlashes(filePath)] = true;
+	});
+	let currentDirectories = Object.create(null);
+	deriveDirectoriesFromFiles(currentFiles).forEach(function(directoryPath) {
+		currentDirectories[normalizeSlashes(directoryPath)] = true;
+	});
+	let filesToRemove = sortByDepthDesc(uniqueArray(previousManifest.files.filter(function(filePath) {
+		return !!filePath && !currentSet[normalizeSlashes(filePath)];
+	})));
+	let directoriesToRemove = sortByDepthDesc(uniqueArray((previousManifest.directories || []).filter(function(directoryPath) {
+		return !!directoryPath && !currentDirectories[normalizeSlashes(directoryPath)] && !filesToRemove.some(function(filePath) {
+			return normalizeSlashes(filePath).indexOf(normalizeSlashes(directoryPath) + '/') === 0;
+		});
+	})));
+	filesToRemove.forEach(function(filePath) {
+		try {
+			removeLocalFile(joinNativePath(pluginRootPath, filePath));
+		} catch (e) {
+			console.warn('Failed to remove stale store file:', filePath, e);
+		}
+	});
+	directoriesToRemove.forEach(function(directoryPath) {
+		try {
+			removeLocalDirectory(joinNativePath(pluginRootPath, directoryPath));
+		} catch (e) {
+			console.warn('Failed to remove stale store directory:', directoryPath, e);
+		}
+	});
+};
+
+function updateStoreHeaderStateAfterSuccess() {
+	storeLocalVersion = storeRemoteVersion || storeLocalVersion;
+	storeHasUpdate = false;
+	updateStoreHeaderVersionUI();
+};
+
+async function performLocalStoreSelfUpdate() {
+	if (!isLocal || !hasDesktopBridge())
+		throw new Error('Desktop bridge is unavailable');
+	let context = getStoreUpdateGitHubContext();
+	let pluginRootPath = getStorePluginRootPath();
+	let manifestPath = getStoreUpdateManifestPath(pluginRootPath);
+	let previousManifest = await readStoreUpdateManifest(manifestPath);
+	let files = await collectStoreRemoteFiles(context);
+	if (!files.length)
+		throw new Error('Remote store source does not contain files');
+	let configEntry = null;
+	let writeQueue = [];
+	files.forEach(function(file) {
+		if (file.relativePath === 'config.json')
+			configEntry = file;
+		else
+			writeQueue.push(file);
+	});
+	if (configEntry)
+		writeQueue.push(configEntry);
+	let writtenFiles = [];
+	for (let i = 0; i < writeQueue.length; i += 1) {
+		let file = writeQueue[i];
+		let targetPath = joinNativePath(pluginRootPath, file.relativePath);
+		let buffer = await fetchArrayBuffer(file.downloadUrl);
+		writeBinaryFile(targetPath, buffer);
+		writtenFiles.push(normalizeSlashes(file.relativePath));
+	}
+	let manifestPayload = {
+		source: 'github',
+		owner: context.owner,
+		repo: context.repo,
+		branch: context.branch,
+		files: sortByDepthDesc(uniqueArray(writtenFiles)),
+		directories: deriveDirectoriesFromFiles(writtenFiles)
+	};
+	writeBase64File(manifestPath, encodeUtf8ToBase64(JSON.stringify(manifestPayload, null, 2)));
+	cleanupStoreRemovedPaths(pluginRootPath, previousManifest, writtenFiles);
+	return manifestPayload;
+};
+
+async function runStoreSelfUpdate() {
+	if (isLocal && hasDesktopBridge()) {
+		try {
+			await performLocalStoreSelfUpdate();
+			toogleLoader(false);
+			updateStoreHeaderStateAfterSuccess();
+			showStoreUpdateModal(messages.storeUpdateSuccessTitle, messages.storeUpdateSuccessText, true);
+		} catch (error) {
+			console.error('Store self-update failed:', error);
+			toogleLoader(false);
+			showStoreUpdateModal(messages.storeUpdateErrorTitle, messages.storeUpdateErrorText, false);
+		}
+		return;
+	}
+	sendMessage({ type: 'updateStore', url: storeRemoteConfigUrl }, '*');
+}
+
 async function fetchMarkdownWithFallback(fileName, fallbackMarkdown) {
 	let cacheBuster = 'v=' + Date.now();
 	for (let i = 0; i < contentRemoteBases.length; i++) {
@@ -469,6 +1026,13 @@ async function fetchFirstMarkdown(candidates, fallbackMarkdown) {
 }
 
 function closeStorePluginWindow() {
+	try {
+		if (window.parent && window.parent !== window) {
+			sendMessage({ type: 'closePlugin' });
+			return;
+		}
+	} catch (e) {
+	}
 	try {
 		if (window.Asc && window.Asc.plugin && typeof window.Asc.plugin.executeCommand === 'function') {
 			window.Asc.plugin.executeCommand('close', '');
@@ -645,7 +1209,13 @@ const messages = {
 	updateAvailable: 'Update available',
 	licensePlaceholder: 'Текст лицензии будет добавлен после получения от Марии.',
 	removeConfirmPrompt: 'Are you sure you want to remove this plugin?',
-	removeConfirmTitle: 'Remove plugin'
+	removeConfirmTitle: 'Remove plugin',
+	storeUpdateSuccessTitle: 'Store updated',
+	storeUpdateSuccessText: 'The plugin marketplace has been updated successfully. It will close now. Open it again manually.',
+	storeUpdateMismatchTitle: 'Update source mismatch',
+	storeUpdateMismatchText: 'The remote marketplace config belongs to another plugin and cannot update this build.',
+	storeUpdateErrorTitle: 'Update failed',
+	storeUpdateErrorText: 'The plugin marketplace could not be updated.'
 };
 const isIE = (navigator.userAgent.toLowerCase().indexOf("msie") > -1 ||
 				navigator.userAgent.toLowerCase().indexOf("trident") > -1 ||
@@ -753,6 +1323,23 @@ window.onload = async function() {
 			founded = [];
 			fetchAllPlugins(true, false);
 			sendMessage({type: 'getInstalled', updateInstalled: true}, '*');
+			loadStoreUpdateState();
+		};
+	}
+	if (elements.btnStoreUpdate) {
+		elements.btnStoreUpdate.onclick = function() {
+			if (!storeHasUpdate)
+				return;
+			if (storeUpdateGuidMismatch) {
+				showStoreUpdateModal(messages.storeUpdateMismatchTitle, messages.storeUpdateMismatchText, false);
+				return;
+			}
+			trackGoal('store_update_click', {
+				from_version: storeLocalVersion,
+				to_version: storeRemoteVersion
+			});
+			toogleLoader(true, 'Updating');
+			runStoreSelfUpdate();
 		};
 	}
 	if (elements.btnSettingsClose) {
@@ -817,6 +1404,14 @@ window.onload = async function() {
 				action();
 		};
 	}
+	if (elements.btnStoreUpdateOk)
+		elements.btnStoreUpdateOk.onclick = hideStoreUpdateModal;
+	if (elements.storeUpdateOverlay) {
+		elements.storeUpdateOverlay.addEventListener('click', function(event) {
+			if (event.target === elements.storeUpdateOverlay && !closeAfterStoreUpdateModal)
+				hideStoreUpdateModal();
+		});
+	}
 	document.addEventListener('keydown', function(event) {
 		if (event.key === 'Escape' && elements.welcomePopupOverlay && !elements.welcomePopupOverlay.classList.contains('hidden')) {
 			hideWelcomePopup();
@@ -824,6 +1419,8 @@ window.onload = async function() {
 		}
 		if (event.key === 'Escape' && elements.removeConfirmOverlay && !elements.removeConfirmOverlay.classList.contains('hidden'))
 			hideRemoveConfirm();
+		if (event.key === 'Escape' && elements.storeUpdateOverlay && !elements.storeUpdateOverlay.classList.contains('hidden') && !closeAfterStoreUpdateModal)
+			hideStoreUpdateModal();
 	});
 	bindPopupLinkHandling();
 	setupR7cFlyout();
@@ -836,6 +1433,7 @@ window.onload = async function() {
 	});
 	isFrameLoading = false;
 	onTranslate();
+	loadStoreUpdateState();
 
 	if (shortLang == "en" || (!isPluginLoading && !isTranslationLoading)) {
 		// if nothing to translate
@@ -1047,6 +1645,22 @@ window.addEventListener('message', function(message) {
 			createError(message.error);
 			toogleLoader(false);
 			break;
+		case 'StoreUpdated':
+			toogleLoader(false);
+			if (message.result && message.result.type === 'Error') {
+				showStoreUpdateModal(messages.storeUpdateErrorTitle, messages.storeUpdateErrorText, false);
+				break;
+			}
+			if (!message.result || (message.result.type !== 'Updated' && message.result.type !== 'Installed')) {
+				console.warn('Unexpected store update result:', message.result);
+				showStoreUpdateModal(messages.storeUpdateErrorTitle, messages.storeUpdateErrorText, false);
+				break;
+			}
+			storeLocalVersion = storeRemoteVersion || storeLocalVersion;
+			storeHasUpdate = false;
+			updateStoreHeaderVersionUI();
+			showStoreUpdateModal(messages.storeUpdateSuccessTitle, messages.storeUpdateSuccessText, true);
+			break;
 		case 'Theme':
 			let override = getThemeOverride();
 			if (override)
@@ -1209,7 +1823,10 @@ function initElemnts() {
 	// elements.arrow = document.getElementById('arrow');
 	// elements.close = document.getElementById('close');
 	elements.divHeader = document.getElementById('div_header');
+	elements.storeVersion = document.getElementById('store_version');
+	elements.storeUpdateBadge = document.getElementById('store_update_badge');
 	elements.btnSettings = document.getElementById('btn_settings');
+	elements.btnStoreUpdate = document.getElementById('btn_store_update');
 	elements.btnReload = document.getElementById('btn_reload');
 	elements.btnLicense = document.getElementById('btn_license');
 	elements.settingsModal = document.getElementById('settings_modal');
@@ -1221,6 +1838,10 @@ function initElemnts() {
 	elements.removeConfirmText = document.getElementById('remove_confirm_text');
 	elements.btnRemoveConfirmCancel = document.getElementById('btn_remove_confirm_cancel');
 	elements.btnRemoveConfirmOk = document.getElementById('btn_remove_confirm_ok');
+	elements.storeUpdateOverlay = document.getElementById('store_update_overlay');
+	elements.storeUpdateTitle = document.getElementById('store_update_title');
+	elements.storeUpdateText = document.getElementById('store_update_text');
+	elements.btnStoreUpdateOk = document.getElementById('btn_store_update_ok');
 	elements.r7cFlyout = document.getElementById('r7c-flyout');
 	elements.r7cFlyoutLogo = document.getElementById('r7c-flyout-logo');
 	elements.welcomePopupOverlay = document.getElementById('welcome-popup-overlay');
@@ -2362,12 +2983,19 @@ function onTranslate() {
 		elements.btnRemoveConfirmCancel.innerHTML = getTranslated('No');
 	if (elements.btnRemoveConfirmOk)
 		elements.btnRemoveConfirmOk.innerHTML = getTranslated('Yes');
+	if (elements.storeUpdateTitle)
+		elements.storeUpdateTitle.innerHTML = getTranslated(messages.storeUpdateErrorTitle);
+	if (elements.storeUpdateText)
+		elements.storeUpdateText.innerHTML = getTranslated(messages.storeUpdateErrorText);
+	if (elements.btnStoreUpdateOk)
+		elements.btnStoreUpdateOk.innerHTML = getTranslated('OK');
 	elements.inpSearch.placeholder = getTranslated('Search plugins') + '...';
 	document.getElementById('lbl_header').innerHTML = '{r7} consult';
 	document.getElementById('lbl_subtitle').innerHTML = getTranslated('Сatalog and installer plugin');
 	let rightsNotice = document.getElementById('lbl_r7c_rights');
 	if (rightsNotice)
 		rightsNotice.innerHTML = getTranslated('Plugin marketplace is powered by {r7} consult. All rights reserved.');
+	updateStoreHeaderVersionUI();
 	document.getElementById('span_offered_caption').innerHTML = getTranslated('Offered by') + ' ';
 	document.getElementById('span_overview').innerHTML = getTranslated('Overview');
 	document.getElementById('span_info').innerHTML = getTranslated('Info & Support');
@@ -2397,6 +3025,10 @@ function onTranslate() {
 	if (elements.btnReload) {
 		elements.btnReload.title = getTranslated('Reload');
 		elements.btnReload.setAttribute('aria-label', getTranslated('Reload'));
+	}
+	if (elements.btnStoreUpdate) {
+		elements.btnStoreUpdate.title = getTranslated('Update');
+		elements.btnStoreUpdate.setAttribute('aria-label', getTranslated('Update'));
 	}
 	if (elements.btnSettingsClose)
 		elements.btnSettingsClose.title = getTranslated('Close');

@@ -186,6 +186,13 @@ textarea,
     color: var(--pm-text);
 }
 
+.header_title_row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
 .header_subtitle {
     font-size: 12px;
     color: var(--pm-text-muted);
@@ -232,6 +239,29 @@ textarea,
     color: var(--pm-text-muted);
 }
 
+.store_version {
+    display: inline-flex;
+    align-items: center;
+    color: var(--pm-text-muted);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+}
+
+.store_update_badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    padding: 0 10px;
+    border-radius: 999px;
+    background: rgba(14, 99, 156, 0.14);
+    border: 1px solid rgba(14, 99, 156, 0.35);
+    color: var(--pm-accent);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+}
+
 .btn_action {
     height: 28px;
     padding: 0 12px;
@@ -254,7 +284,9 @@ body.theme-type-dark .btn_action {
 .btn_icon {
     width: 28px;
     height: 28px;
+    min-width: 28px;
     display: inline-flex;
+    flex: 0 0 28px;
     align-items: center;
     justify-content: center;
     border: 1px solid var(--pm-border);
@@ -263,6 +295,8 @@ body.theme-type-dark .btn_action {
     cursor: pointer;
     padding: 0;
     color: var(--pm-text-muted);
+    appearance: none;
+    -webkit-appearance: none;
 }
 
 .btn_icon svg {
@@ -278,6 +312,30 @@ body.theme-type-dark .btn_icon {
 
 .btn_icon:hover {
     border-color: var(--pm-accent);
+}
+
+.btn_store_update {
+    color: var(--pm-accent);
+    background: rgba(14, 99, 156, 0.12);
+    border-color: rgba(14, 99, 156, 0.4);
+    box-shadow: none;
+}
+
+.btn_store_update:hover {
+    background: rgba(14, 99, 156, 0.18);
+    border-color: rgba(14, 99, 156, 0.7);
+    box-shadow: none;
+}
+
+body.theme-type-dark .btn_store_update {
+    color: #9cdcfe;
+    background: rgba(14, 99, 156, 0.24);
+    border-color: rgba(86, 156, 214, 0.42);
+}
+
+body.theme-type-dark .btn_store_update:hover {
+    background: rgba(14, 99, 156, 0.34);
+    border-color: rgba(156, 220, 254, 0.62);
 }
 
 .close_icon {
@@ -1558,6 +1616,10 @@ select:focus-visible,
 
     .header_actions {
         width: 100%;
+    }
+
+    .header_title_row {
+        gap: 6px;
     }
 
     .btn_action {
