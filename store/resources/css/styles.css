@@ -284,7 +284,9 @@ body.theme-type-dark .btn_action {
 .btn_icon {
     width: 28px;
     height: 28px;
+    min-width: 28px;
     display: inline-flex;
+    flex: 0 0 28px;
     align-items: center;
     justify-content: center;
     border: 1px solid var(--pm-border);
@@ -293,6 +295,8 @@ body.theme-type-dark .btn_action {
     cursor: pointer;
     padding: 0;
     color: var(--pm-text-muted);
+    appearance: none;
+    -webkit-appearance: none;
 }
 
 .btn_icon svg {
@@ -311,15 +315,27 @@ body.theme-type-dark .btn_icon {
 }
 
 .btn_store_update {
-    color: #ffffff;
-    background: linear-gradient(180deg, #1380d8, #0e639c);
-    border-color: rgba(19, 128, 216, 0.9);
-    box-shadow: 0 0 0 1px rgba(19, 128, 216, 0.18), 0 0 18px rgba(19, 128, 216, 0.28);
+    color: var(--pm-accent);
+    background: rgba(14, 99, 156, 0.12);
+    border-color: rgba(14, 99, 156, 0.4);
+    box-shadow: none;
 }
 
 .btn_store_update:hover {
-    border-color: #36a3ff;
-    box-shadow: 0 0 0 1px rgba(54, 163, 255, 0.28), 0 0 22px rgba(54, 163, 255, 0.34);
+    background: rgba(14, 99, 156, 0.18);
+    border-color: rgba(14, 99, 156, 0.7);
+    box-shadow: none;
+}
+
+body.theme-type-dark .btn_store_update {
+    color: #9cdcfe;
+    background: rgba(14, 99, 156, 0.24);
+    border-color: rgba(86, 156, 214, 0.42);
+}
+
+body.theme-type-dark .btn_store_update:hover {
+    background: rgba(14, 99, 156, 0.34);
+    border-color: rgba(156, 220, 254, 0.62);
 }
 
 .close_icon {
