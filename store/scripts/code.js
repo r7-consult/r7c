@@ -768,13 +768,28 @@ function getStoreUpdateManifestPath(pluginRootPath) {
 };
 
 function getStoreUpdateGitHubContext() {
-	let match = String(OOStoreUpdateUrl || '').match(/^https:\/\/raw\.githubusercontent\.com\/([^\/]+)\/([^\/]+)\/([^\/]+)(?:\/(.*))?$/i);
+	let rawUrl = String(OOStoreUpdateUrl || '').trim();
+	let match = rawUrl.match(/^https:\/\/raw\.githubusercontent\.com\/([^\/]+)\/([^\/]+)\/(.+)$/i);
 	if (!match)
 		throw new Error('Store update source must be a raw.githubusercontent.com URL');
 	let owner = match[1];
 	let repo = match[2];
-	let branch = match[3];
-	let basePath = trimSlashes(match[4] || '');
+	let tail = trimSlashes(match[3] || '');
+	let branch = '';
+	let basePath = '';
+
+	if (tail.indexOf('refs/heads/') === 0) {
+		let refsParts = tail.split('/').filter(Boolean);
+		branch = refsParts[2] || '';
+		basePath = trimSlashes(refsParts.slice(3).join('/'));
+	} else {
+		let parts = tail.split('/').filter(Boolean);
+		branch = parts[0] || '';
+		basePath = trimSlashes(parts.slice(1).join('/'));
+	}
+
+	if (!branch)
+		throw new Error('Store update branch is not resolved');
 	return {
 		owner: owner,
 		repo: repo,
