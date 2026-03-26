@@ -1294,7 +1294,7 @@ window.onload = async function() {
 	initElemnts();
 	try {
 		if (window.Asc && window.Asc.plugin && typeof window.Asc.plugin.resizeWindow === 'function')
-			window.Asc.plugin.resizeWindow(865, 600, 600, 600, 0, 0);
+			window.Asc.plugin.resizeWindow(1200, 600, 600, 600, 0, 0);
 	} catch (e) {
 	}
 	let startupGateResult = await ensureStoreStartupAccess();
@@ -1753,10 +1753,12 @@ function makeRequest(url, method, responseType, body, bHandeNoInternet) {
 			
 			xhr.onload = function () {
 				if (this.readyState == 4) {
-					if (this.status !== 404 && (this.status == 200 || location.href.indexOf("file:") == 0)) {
+					let isLocalFileRequest = url.indexOf('file:') == 0;
+					let canUseFileResponse = (location.href.indexOf("file:") == 0 && isLocalFileRequest && this.status == 0);
+					if (this.status == 200 || canUseFileResponse) {
 						resolve(this.response);
 					}
-					if (this.status >= 400) {
+					else if (this.status >= 400 || this.status == 0) {
 						let errorText = this.status === 404 ? 'File not found.' : 'Network problem.';
 						reject( new Error( getTranslated(errorText) ) );
 					}

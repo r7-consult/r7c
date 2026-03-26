@@ -36,7 +36,7 @@
 	
 	window.Asc.plugin.init = function() {
 		window.Asc.plugin.executeMethod('ShowButton',['developer', true, 'right']);
-		window.Asc.plugin.resizeWindow(865, 600, 600, 600, 0, 0);
+		window.Asc.plugin.resizeWindow(1200, 600, 600, 600, 0, 0);
 		if (!isLocal) {
 			checkInternet(true);
 			loaderTimeout = setTimeout(createLoader, 500);
