@@ -1912,11 +1912,9 @@ function getAllPluginsData(bFirstRender, bshowMarketplace) {
 	let Unloaded = [];
 	let url = isLocal ? OOMarketplaceUrl : ioUrl;
 	allPlugins.forEach(function(plugin, i, arr) {
+		let catalogPlugin = normalizeMarketplacePluginEntry(plugin);
 		count++;
-		if (typeof plugin !== 'object') {
-			plugin.name = plugin;
-		}
-		let pluginCandidates = buildPluginBaseCandidates(plugin.name, url);
+		let pluginCandidates = buildPluginBaseCandidates(catalogPlugin.name, url);
 		loadPluginConfigByCandidates(
 			pluginCandidates,
 			function(response, pluginUrl, confUrl) {
@@ -1924,6 +1922,7 @@ function getAllPluginsData(bFirstRender, bshowMarketplace) {
 				config.url = pluginUrl;
 				config.configUrl = confUrl;
 				config.baseUrl = pluginUrl;
+				config.marketplaceEntry = catalogPlugin;
 				arr[i] = config;
 				config.languages = [ getTranslated('English') ];
 				if (shouldLoadPluginLangs) {
@@ -1948,9 +1947,9 @@ function getAllPluginsData(bFirstRender, bshowMarketplace) {
 						}
 					);
 				}
-				if (plugin.discussion) {
+				if (catalogPlugin.discussion) {
 					discussionCount++;
-					config.discussionUrl = discussionsUrl + plugin.discussion;
+					config.discussionUrl = discussionsUrl + catalogPlugin.discussion;
 					getDiscussion(config);
 				}
 				count--;
@@ -1972,6 +1971,12 @@ function getAllPluginsData(bFirstRender, bshowMarketplace) {
 		getInstalledLanguages();
 		showMarketplace();
 	}
+};
+
+function normalizeMarketplacePluginEntry(plugin) {
+	if (plugin && typeof plugin === 'object')
+		return Object.assign({}, plugin);
+	return { name: plugin };
 };
 
 function getDiscussion(config) {
@@ -3363,8 +3368,7 @@ function sortPlugins(bAll, bInst, type) {
 };
 
 function getPluginStorePriority(plugin) {
-	let variation = plugin && plugin.variations && plugin.variations[0];
-	let priority = variation && variation.store ? Number(variation.store.priority) : 0;
+	let priority = plugin && plugin.marketplaceEntry ? Number(plugin.marketplaceEntry.priority) : 0;
 	return isNaN(priority) ? 0 : priority;
 };
 
