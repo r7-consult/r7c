@@ -64,6 +64,8 @@ calculateScale();
 const storeLocalConfigUrl = '../config.json';
 const storeRemoteConfigUrl = OOStoreUpdateUrl + 'config.json';
 const themeOverrideKey = 'pm_theme_override';
+const maxCommunityUrl = 'https://max.ru/join/hD88sOjvSS9nBmaEvRMcH1NQF53liVba_iJBngnDnUo';
+const telegramCommunityUrl = 'https://t.me/r7_js';
 const contentRemoteBases = [
 	'https://raw.githubusercontent.com/r7-consult/r7c/main/',
 	'https://raw.githubusercontent.com/r7-consult/r7c/master/'
@@ -1313,6 +1315,16 @@ window.onload = async function() {
 			showWelcomePopup('license');
 		};
 	}
+	if (elements.btnMax) {
+		elements.btnMax.onclick = function() {
+			openExternalUrl(maxCommunityUrl);
+		};
+	}
+	if (elements.btnTelegram) {
+		elements.btnTelegram.onclick = function() {
+			openExternalUrl(telegramCommunityUrl);
+		};
+	}
 	if (elements.btnReload) {
 		elements.btnReload.onclick = function() {
 			trackGoal('reload_click');
@@ -1826,6 +1838,8 @@ function initElemnts() {
 	elements.storeVersion = document.getElementById('store_version');
 	elements.storeUpdateBadge = document.getElementById('store_update_badge');
 	elements.btnSettings = document.getElementById('btn_settings');
+	elements.btnMax = document.getElementById('btn_max');
+	elements.btnTelegram = document.getElementById('btn_telegram');
 	elements.btnStoreUpdate = document.getElementById('btn_store_update');
 	elements.btnReload = document.getElementById('btn_reload');
 	elements.btnLicense = document.getElementById('btn_license');
@@ -2973,6 +2987,14 @@ function onTranslate() {
 	if (elements.btnLicense) {
 		elements.btnLicense.title = getTranslated('License');
 		elements.btnLicense.setAttribute('aria-label', getTranslated('License'));
+	}
+	if (elements.btnMax) {
+		elements.btnMax.title = 'MAX';
+		elements.btnMax.setAttribute('aria-label', 'MAX');
+	}
+	if (elements.btnTelegram) {
+		elements.btnTelegram.title = 'Telegram';
+		elements.btnTelegram.setAttribute('aria-label', 'Telegram');
 	}
 	elements.btnInstall.innerHTML = getTranslated('Install');
 	if (elements.btnLearnMore)
