@@ -64,6 +64,8 @@ calculateScale();
 const storeLocalConfigUrl = '../config.json';
 const storeRemoteConfigUrl = OOStoreUpdateUrl + 'config.json';
 const themeOverrideKey = 'pm_theme_override';
+const maxCommunityUrl = 'https://max.ru/join/hD88sOjvSS9nBmaEvRMcH1NQF53liVba_iJBngnDnUo';
+const telegramCommunityUrl = 'https://t.me/r7_js';
 const contentRemoteBases = [
 	'https://raw.githubusercontent.com/r7-consult/r7c/main/',
 	'https://raw.githubusercontent.com/r7-consult/r7c/master/'
@@ -1292,7 +1294,7 @@ window.onload = async function() {
 	initElemnts();
 	try {
 		if (window.Asc && window.Asc.plugin && typeof window.Asc.plugin.resizeWindow === 'function')
-			window.Asc.plugin.resizeWindow(865, 600, 600, 600, 0, 0);
+			window.Asc.plugin.resizeWindow(1200, 600, 600, 600, 0, 0);
 	} catch (e) {
 	}
 	let startupGateResult = await ensureStoreStartupAccess();
@@ -1311,6 +1313,16 @@ window.onload = async function() {
 		elements.btnLicense.onclick = function() {
 			trackGoal('license_click');
 			showWelcomePopup('license');
+		};
+	}
+	if (elements.btnMax) {
+		elements.btnMax.onclick = function() {
+			openExternalUrl(maxCommunityUrl);
+		};
+	}
+	if (elements.btnTelegram) {
+		elements.btnTelegram.onclick = function() {
+			openExternalUrl(telegramCommunityUrl);
 		};
 	}
 	if (elements.btnReload) {
@@ -1741,10 +1753,12 @@ function makeRequest(url, method, responseType, body, bHandeNoInternet) {
 			
 			xhr.onload = function () {
 				if (this.readyState == 4) {
-					if (this.status !== 404 && (this.status == 200 || location.href.indexOf("file:") == 0)) {
+					let isLocalFileRequest = url.indexOf('file:') == 0;
+					let canUseFileResponse = (location.href.indexOf("file:") == 0 && isLocalFileRequest && this.status == 0);
+					if (this.status == 200 || canUseFileResponse) {
 						resolve(this.response);
 					}
-					if (this.status >= 400) {
+					else if (this.status >= 400 || this.status == 0) {
 						let errorText = this.status === 404 ? 'File not found.' : 'Network problem.';
 						reject( new Error( getTranslated(errorText) ) );
 					}
@@ -1826,6 +1840,8 @@ function initElemnts() {
 	elements.storeVersion = document.getElementById('store_version');
 	elements.storeUpdateBadge = document.getElementById('store_update_badge');
 	elements.btnSettings = document.getElementById('btn_settings');
+	elements.btnMax = document.getElementById('btn_max');
+	elements.btnTelegram = document.getElementById('btn_telegram');
 	elements.btnStoreUpdate = document.getElementById('btn_store_update');
 	elements.btnReload = document.getElementById('btn_reload');
 	elements.btnLicense = document.getElementById('btn_license');
@@ -1912,11 +1928,9 @@ function getAllPluginsData(bFirstRender, bshowMarketplace) {
 	let Unloaded = [];
 	let url = isLocal ? OOMarketplaceUrl : ioUrl;
 	allPlugins.forEach(function(plugin, i, arr) {
+		let catalogPlugin = normalizeMarketplacePluginEntry(plugin);
 		count++;
-		if (typeof plugin !== 'object') {
-			plugin.name = plugin;
-		}
-		let pluginCandidates = buildPluginBaseCandidates(plugin.name, url);
+		let pluginCandidates = buildPluginBaseCandidates(catalogPlugin.name, url);
 		loadPluginConfigByCandidates(
 			pluginCandidates,
 			function(response, pluginUrl, confUrl) {
@@ -1924,6 +1938,7 @@ function getAllPluginsData(bFirstRender, bshowMarketplace) {
 				config.url = pluginUrl;
 				config.configUrl = confUrl;
 				config.baseUrl = pluginUrl;
+				config.marketplaceEntry = catalogPlugin;
 				arr[i] = config;
 				config.languages = [ getTranslated('English') ];
 				if (shouldLoadPluginLangs) {
@@ -1948,9 +1963,9 @@ function getAllPluginsData(bFirstRender, bshowMarketplace) {
 						}
 					);
 				}
-				if (plugin.discussion) {
+				if (catalogPlugin.discussion) {
 					discussionCount++;
-					config.discussionUrl = discussionsUrl + plugin.discussion;
+					config.discussionUrl = discussionsUrl + catalogPlugin.discussion;
 					getDiscussion(config);
 				}
 				count--;
@@ -1972,6 +1987,12 @@ function getAllPluginsData(bFirstRender, bshowMarketplace) {
 		getInstalledLanguages();
 		showMarketplace();
 	}
+};
+
+function normalizeMarketplacePluginEntry(plugin) {
+	if (plugin && typeof plugin === 'object')
+		return Object.assign({}, plugin);
+	return { name: plugin };
 };
 
 function getDiscussion(config) {
@@ -2969,6 +2990,14 @@ function onTranslate() {
 		elements.btnLicense.title = getTranslated('License');
 		elements.btnLicense.setAttribute('aria-label', getTranslated('License'));
 	}
+	if (elements.btnMax) {
+		elements.btnMax.title = 'MAX';
+		elements.btnMax.setAttribute('aria-label', 'MAX');
+	}
+	if (elements.btnTelegram) {
+		elements.btnTelegram.title = 'Telegram';
+		elements.btnTelegram.setAttribute('aria-label', 'Telegram');
+	}
 	elements.btnInstall.innerHTML = getTranslated('Install');
 	if (elements.btnLearnMore)
 		elements.btnLearnMore.innerHTML = getTranslated(messages.learnMore);
@@ -3363,8 +3392,7 @@ function sortPlugins(bAll, bInst, type) {
 };
 
 function getPluginStorePriority(plugin) {
-	let variation = plugin && plugin.variations && plugin.variations[0];
-	let priority = variation && variation.store ? Number(variation.store.priority) : 0;
+	let priority = plugin && plugin.marketplaceEntry ? Number(plugin.marketplaceEntry.priority) : 0;
 	return isNaN(priority) ? 0 : priority;
 };
 
