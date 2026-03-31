@@ -24,7 +24,11 @@
     "loader": false,
     "variations" : [
         {
-            "description" : "{r7} consult",
+            "description" : "Plugin catalog and manager for R7/ONLYOFFICE: install, update, and control all your extensions in one place.",
+            "descriptionLocale": {
+                "ru": "Каталог и менеджер плагинов для R7/ONLYOFFICE: устанавливайте, обновляйте и управляйте всеми расширениями в одном окне.",
+                "en": "Plugin catalog and manager for R7/ONLYOFFICE: install, update, and control all your extensions in one place."
+            },
             "url" : "index.html",
             "icons": [ "resources/light/icon.svg", "resources/light/icon.svg" ],
             "icons2": [

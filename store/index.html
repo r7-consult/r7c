@@ -188,7 +188,8 @@
 					<span id="span_overview" class="span_caption span_selected" onclick="onSelectPreview(event.target, 1)">Overview</span>
 					<span id="span_info" class="span_caption" onclick="onSelectPreview(event.target, 2)">Info & Support</span>
 					<span id="span_changelog" class="span_caption" onclick="onSelectPreview(event.target, 3)">Changelog</span>
-					<span id="span_license" class="span_caption" onclick="onSelectPreview(event.target, 4)">License</span>
+					<span id="span_readme" class="span_caption" onclick="onSelectPreview(event.target, 4)">README</span>
+					<span id="span_license" class="span_caption" onclick="onSelectPreview(event.target, 5)">License</span>
 					<hr>
 				</div>
 				<div id="div_selected_preview" class="div_selected_preview">
@@ -241,6 +242,9 @@
 				<div id="div_selected_changelog" class="div_selected_preview div_selected_preview_chanelog hidden">
 					<div id="div_changelog_preview"></div>
 				</div>
+				<div id="div_selected_readme" class="div_selected_preview hidden">
+					<div id="div_readme_preview" class="markdown-content"></div>
+				</div>
 				<div id="div_selected_license" class="div_selected_preview hidden">
 					<div id="div_license_preview" class="markdown-content"></div>
 				</div>
@@ -281,6 +285,7 @@
 				</div>
 				<div class="welcome-popup-tabs" role="tablist" aria-label="Welcome tabs">
 					<button id="welcome-tab-welcome" class="welcome-tab welcome-tab-active" type="button" role="tab" aria-selected="true">Welcome</button>
+					<button id="welcome-tab-readme" class="welcome-tab" type="button" role="tab" aria-selected="false">README</button>
 					<button id="welcome-tab-license" class="welcome-tab" type="button" role="tab" aria-selected="false">License</button>
 				</div>
 				<div class="welcome-popup-content">
@@ -298,6 +303,11 @@
 								<div class="welcome-subtitle">Коммерческая версия</div>
 								<p class="welcome-muted">Все права принадлежат ООО Датаконс.</p>
 							</div>
+						</div>
+					</div>
+					<div id="welcome-tab-panel-readme" class="welcome-tab-panel hidden">
+						<div id="readme-markdown" class="welcome-body markdown-content">
+							<p>Загрузка README...</p>
 						</div>
 					</div>
 					<div id="welcome-tab-panel-license" class="welcome-tab-panel hidden">

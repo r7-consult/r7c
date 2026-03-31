@@ -81,9 +81,13 @@ let storeUpdateGuidMismatch = false;
 let closeAfterStoreUpdateModal = false;
 let popupContentLoaded = false;
 let popupWelcomeLoaded = false;
+let popupReadmeLoaded = false;
 let popupLicenseLoaded = false;
+let selectedReadmeLoaded = false;
 let selectedLicenseLoaded = false;
+let selectedPluginReadmeKey = '';
 let selectedPluginLicenseKey = '';
+let selectedPluginReadmeSource = '';
 let selectedPluginLicenseSource = '';
 let pendingRemoveAction = null;
 let pendingInstallContext = null;
@@ -107,6 +111,12 @@ const fallbackLicenseMarkdown = [
 	'',
 	'Не удалось загрузить LICENSE.md удалённо.',
 	'Показан fallback из встроенной версии плагина.'
+].join('\n');
+const fallbackReadmeMarkdown = [
+	'# README',
+	'',
+	'Не удалось загрузить README.md.',
+	'Проверьте, что описание плагина добавлено в README.md или README_RU.md.'
 ].join('\n');
 const storeUpdateManifestName = 'store-update-manifest.json';
 
@@ -331,7 +341,14 @@ function getSelectedPluginLicenseBase() {
 	return selectedPluginLicenseSource || '';
 }
 
-async function fetchSelectedPluginLicense(baseUrl) {
+function getReadmeCandidates() {
+	let candidates = [];
+	if (shortLang === 'ru')
+		candidates.push('README_RU.md', 'README_ru.md', 'readme_ru.md');
+	return candidates.concat(['README.md', 'README.MD', 'readme.md']);
+}
+
+async function fetchSelectedPluginMarkdown(baseUrl, candidates) {
 	if (!baseUrl)
 		return '';
 	let normalizedBase = baseUrl.endsWith('/') ? baseUrl : (baseUrl + '/');
@@ -340,7 +357,6 @@ async function fetchSelectedPluginLicense(baseUrl) {
 	} catch (e) {
 	}
 	let cacheBuster = 'v=' + Date.now();
-	let candidates = ['LICENSE.md', 'LICENSE.MD', 'license.md', 'LICENSE', 'license'];
 	for (let i = 0; i < candidates.length; i++) {
 		let candidateUrl = normalizedBase + candidates[i] + '?' + cacheBuster;
 		try {
@@ -354,6 +370,14 @@ async function fetchSelectedPluginLicense(baseUrl) {
 		}
 	}
 	return '';
+}
+
+async function fetchSelectedPluginLicense(baseUrl) {
+	return fetchSelectedPluginMarkdown(baseUrl, ['LICENSE.md', 'LICENSE.MD', 'license.md', 'LICENSE', 'license']);
+}
+
+async function fetchSelectedPluginReadme(baseUrl) {
+	return fetchSelectedPluginMarkdown(baseUrl, getReadmeCandidates());
 }
 
 function renderMarkdown(markdownText) {
@@ -1061,26 +1085,35 @@ async function ensureStoreStartupAccess() {
 }
 
 function switchWelcomeTab(tabName) {
-	let isLicense = tabName === 'license';
+	let targetTab = (tabName === 'license' || tabName === 'readme') ? tabName : 'welcome';
+	let isWelcome = targetTab === 'welcome';
+	let isReadme = targetTab === 'readme';
+	let isLicense = targetTab === 'license';
 	if (elements.welcomeTabWelcome)
-		elements.welcomeTabWelcome.classList.toggle('welcome-tab-active', !isLicense);
+		elements.welcomeTabWelcome.classList.toggle('welcome-tab-active', isWelcome);
+	if (elements.welcomeTabReadme)
+		elements.welcomeTabReadme.classList.toggle('welcome-tab-active', isReadme);
 	if (elements.welcomeTabLicense)
 		elements.welcomeTabLicense.classList.toggle('welcome-tab-active', isLicense);
 	if (elements.welcomeTabWelcome)
-		elements.welcomeTabWelcome.setAttribute('aria-selected', isLicense ? 'false' : 'true');
+		elements.welcomeTabWelcome.setAttribute('aria-selected', isWelcome ? 'true' : 'false');
+	if (elements.welcomeTabReadme)
+		elements.welcomeTabReadme.setAttribute('aria-selected', isReadme ? 'true' : 'false');
 	if (elements.welcomeTabLicense)
 		elements.welcomeTabLicense.setAttribute('aria-selected', isLicense ? 'true' : 'false');
 	if (elements.welcomeTabPanelWelcome)
-		elements.welcomeTabPanelWelcome.classList.toggle('hidden', isLicense);
+		elements.welcomeTabPanelWelcome.classList.toggle('hidden', !isWelcome);
+	if (elements.welcomeTabPanelReadme)
+		elements.welcomeTabPanelReadme.classList.toggle('hidden', !isReadme);
 	if (elements.welcomeTabPanelLicense)
 		elements.welcomeTabPanelLicense.classList.toggle('hidden', !isLicense);
 	if (elements.welcomePopupModal)
-		elements.welcomePopupModal.classList.toggle('welcome-popup-license-mode', isLicense);
-	trackGoal('welcome_tab_switch', { tab: isLicense ? 'license' : 'welcome' });
+		elements.welcomePopupModal.classList.toggle('welcome-popup-license-mode', !isWelcome);
+	trackGoal('welcome_tab_switch', { tab: targetTab });
 }
 
 async function loadPopupContent(tabName) {
-	let targetTab = tabName === 'license' ? 'license' : 'welcome';
+	let targetTab = (tabName === 'license' || tabName === 'readme') ? tabName : 'welcome';
 	if (targetTab === 'welcome') {
 		if (popupWelcomeLoaded)
 			return;
@@ -1092,6 +1125,17 @@ async function loadPopupContent(tabName) {
 		if (elements.welcomeMarkdown)
 			elements.welcomeMarkdown.innerHTML = renderMarkdown(welcomeMarkdown);
 		popupWelcomeLoaded = true;
+	} else if (targetTab === 'readme') {
+		if (popupReadmeLoaded)
+			return;
+		let readmeMarkdown = fallbackReadmeMarkdown;
+		try {
+			readmeMarkdown = await fetchFirstMarkdown(getReadmeCandidates(), fallbackReadmeMarkdown);
+		} catch (e) {
+		}
+		if (elements.readmeMarkdown)
+			elements.readmeMarkdown.innerHTML = renderMarkdown(readmeMarkdown);
+		popupReadmeLoaded = true;
 	} else {
 		if (popupLicenseLoaded)
 			return;
@@ -1105,7 +1149,32 @@ async function loadPopupContent(tabName) {
 		popupLicenseLoaded = true;
 	}
 
-	popupContentLoaded = popupWelcomeLoaded && popupLicenseLoaded;
+	popupContentLoaded = popupWelcomeLoaded && popupReadmeLoaded && popupLicenseLoaded;
+}
+
+async function loadSelectedReadmePreview() {
+	let sourceKey = selectedPluginReadmeSource || '';
+	if (selectedReadmeLoaded && selectedPluginReadmeKey === sourceKey)
+		return;
+	if (!elements.divReadmePreview)
+		return;
+	elements.divReadmePreview.innerHTML = renderMarkdown('Загрузка README плагина...');
+	let readmeMarkdown = '';
+	try {
+		readmeMarkdown = await fetchSelectedPluginReadme(sourceKey);
+	} catch (e) {
+	}
+	if (!readmeMarkdown.trim()) {
+		readmeMarkdown = [
+			'# README',
+			'',
+			'Для выбранного плагина README не найден.',
+			'Проверьте, что в папке плагина есть README.md или README_RU.md.'
+		].join('\n');
+	}
+	elements.divReadmePreview.innerHTML = renderMarkdown(readmeMarkdown);
+	selectedReadmeLoaded = true;
+	selectedPluginReadmeKey = sourceKey;
 }
 
 async function loadSelectedLicensePreview() {
@@ -1136,7 +1205,7 @@ async function loadSelectedLicensePreview() {
 function showWelcomePopup(tabName) {
 	if (!elements.welcomePopupOverlay)
 		return;
-	let targetTab = tabName === 'license' ? 'license' : 'welcome';
+	let targetTab = (tabName === 'license' || tabName === 'readme') ? tabName : 'welcome';
 	elements.welcomePopupOverlay.classList.remove('hidden');
 	switchWelcomeTab(targetTab);
 	loadPopupContent(targetTab);
@@ -1165,8 +1234,12 @@ function bindPopupLinkHandling() {
 
 	if (elements.welcomeMarkdown)
 		elements.welcomeMarkdown.addEventListener('click', onLinkClick);
+	if (elements.readmeMarkdown)
+		elements.readmeMarkdown.addEventListener('click', onLinkClick);
 	if (elements.licenseMarkdown)
 		elements.licenseMarkdown.addEventListener('click', onLinkClick);
+	if (elements.divReadmePreview)
+		elements.divReadmePreview.addEventListener('click', onLinkClick);
 	if (elements.divLicensePreview)
 		elements.divLicensePreview.addEventListener('click', onLinkClick);
 	if (elements.welcomeAside)
@@ -1386,6 +1459,12 @@ window.onload = async function() {
 		elements.welcomeTabWelcome.onclick = function() {
 			switchWelcomeTab('welcome');
 			loadPopupContent('welcome');
+		};
+	}
+	if (elements.welcomeTabReadme) {
+		elements.welcomeTabReadme.onclick = function() {
+			switchWelcomeTab('readme');
+			loadPopupContent('readme');
 		};
 	}
 	if (elements.welcomeTabLicense) {
@@ -1865,11 +1944,17 @@ function initElemnts() {
 	elements.welcomePopupClose = document.getElementById('welcome-popup-close');
 	elements.welcomePopupOk = document.getElementById('welcome-ok');
 	elements.welcomeTabWelcome = document.getElementById('welcome-tab-welcome');
+	elements.welcomeTabReadme = document.getElementById('welcome-tab-readme');
 	elements.welcomeTabLicense = document.getElementById('welcome-tab-license');
 	elements.welcomeTabPanelWelcome = document.getElementById('welcome-tab-panel-welcome');
+	elements.welcomeTabPanelReadme = document.getElementById('welcome-tab-panel-readme');
 	elements.welcomeTabPanelLicense = document.getElementById('welcome-tab-panel-license');
 	elements.welcomeMarkdown = document.getElementById('welcome-markdown');
+	elements.readmeMarkdown = document.getElementById('readme-markdown');
 	elements.licenseMarkdown = document.getElementById('license-markdown');
+	elements.divSelectedReadme = document.getElementById('div_selected_readme');
+	elements.divReadmePreview = document.getElementById('div_readme_preview');
+	elements.spanReadme = document.getElementById('span_readme');
 	elements.divSelectedLicense = document.getElementById('div_selected_license');
 	elements.divLicensePreview = document.getElementById('div_license_preview');
 	elements.spanLicense = document.getElementById('span_license');
@@ -2512,9 +2597,14 @@ function onClickItem() {
 	}
 
 	selectedPluginLicenseSource = plugin.baseUrl || plugin.url || '';
+	selectedPluginReadmeSource = selectedPluginLicenseSource;
+	selectedPluginReadmeKey = '';
 	selectedPluginLicenseKey = '';
+	selectedReadmeLoaded = false;
 	selectedLicenseLoaded = false;
 	ensurePluginChangelogLoaded(plugin);
+	if (elements.divReadmePreview)
+		elements.divReadmePreview.innerHTML = renderMarkdown('Загрузка README плагина...');
 	if (elements.divLicensePreview)
 		elements.divLicensePreview.innerHTML = renderMarkdown('Загрузка лицензии плагина...');
 
@@ -2694,7 +2784,7 @@ function onSelectPreview(target, type) {
 		target.classList.add("span_selected");
 		$(".div_selected_preview").addClass("hidden");
 
-		// type: 1 - Overview; 2 - Info; 3 - Changelog;
+		// type: 1 - Overview; 2 - Info; 3 - Changelog; 4 - README; 5 - License;
 		if (type === 1) {
 			document.getElementById('div_selected_preview').classList.remove('hidden');
 			setDivHeight();
@@ -2703,6 +2793,9 @@ function onSelectPreview(target, type) {
 		} else if (type === 3) {
 			document.getElementById('div_selected_changelog').classList.remove('hidden');
 			PsChangelog.update();
+		} else if (type === 4) {
+			document.getElementById('div_selected_readme').classList.remove('hidden');
+			loadSelectedReadmePreview();
 		} else {
 			document.getElementById('div_selected_license').classList.remove('hidden');
 			loadSelectedLicensePreview();
@@ -3028,7 +3121,15 @@ function onTranslate() {
 	document.getElementById('span_offered_caption').innerHTML = getTranslated('Offered by') + ' ';
 	document.getElementById('span_overview').innerHTML = getTranslated('Overview');
 	document.getElementById('span_info').innerHTML = getTranslated('Info & Support');
+	if (elements.spanReadme)
+		elements.spanReadme.innerHTML = 'README';
 	document.getElementById('span_license').innerHTML = getTranslated('License');
+	if (elements.welcomeTabWelcome)
+		elements.welcomeTabWelcome.innerHTML = getTranslated('Welcome');
+	if (elements.welcomeTabReadme)
+		elements.welcomeTabReadme.innerHTML = 'README';
+	if (elements.welcomeTabLicense)
+		elements.welcomeTabLicense.innerHTML = getTranslated('License');
 	document.getElementById('span_lern').innerHTML = getTranslated('Learn how to use') + ' ';
 	document.getElementById('span_lern_plugin').innerHTML = getTranslated('the plugin in') + ' ';
 	document.getElementById('span_contribute').innerHTML = getTranslated('Contribute') + ' ';
