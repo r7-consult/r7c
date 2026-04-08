@@ -79,6 +79,12 @@
 						<path d="M9 13h6M9 17h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
 					</svg>
 				</button>
+				<button id="btn_support_header" class="btn_icon btn_icon_support" type="button" aria-label="Buy support" title="Buy support">
+					<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+						<path d="M12 4a8 8 0 0 0-8 8v1.5a2.5 2.5 0 0 0 2.5 2.5H8v-6H6.5A5.5 5.5 0 0 1 12 6.5 5.5 5.5 0 0 1 17.5 10H16v6h1.5a2.5 2.5 0 0 0 2.5-2.5V12a8 8 0 0 0-8-8Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path>
+						<path d="M10 18.5h4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"></path>
+					</svg>
+				</button>
 				<button id="btn_telegram" class="btn_icon" type="button" aria-label="Telegram" title="Telegram">
 					<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
 						<path d="M21 4.6L17.9 19a1 1 0 0 1-1.5.6l-4.4-3.2-2.1 2a.9.9 0 0 1-1.5-.5l-.8-4.8-3.8-1.2a.9.9 0 0 1 0-1.7L20 4a.9.9 0 0 1 1 .6zM9 12.6l.5 3.1.8-.8 6.1-6.6-7.4 4.3z"></path>
@@ -174,6 +180,7 @@
 					<button id="btn_update" class="btn-text-default btn_preview btn_install" onclick="onClickUpdate(event.target)">Update</button>
 					<button id="btn_install" class="btn-text-default btn_preview btn_install" onclick="onClickInstall(event.target.parentNode, event)">Install</button>
 					<button id="btn_learn_more" class="btn-text-default btn_preview btn_install hidden" type="button">Learn more</button>
+					<button id="btn_buy_support" class="btn-text-default btn_preview btn_support" type="button">Buy support</button>
 				</div>
 			</div>
 			<div class="div_info_column">
@@ -186,9 +193,9 @@
 			<div style="width:100%; height:100%">
 				<div>
 					<span id="span_overview" class="span_caption span_selected" onclick="onSelectPreview(event.target, 1)">Overview</span>
-					<span id="span_info" class="span_caption" onclick="onSelectPreview(event.target, 2)">Info & Support</span>
+					<span id="span_info" class="span_caption" onclick="onSelectPreview(event.target, 2)">Information</span>
 					<span id="span_changelog" class="span_caption" onclick="onSelectPreview(event.target, 3)">Changelog</span>
-					<span id="span_readme" class="span_caption" onclick="onSelectPreview(event.target, 4)">README</span>
+					<span id="span_support" class="span_caption" onclick="onSelectPreview(event.target, 4)">Support</span>
 					<span id="span_license" class="span_caption" onclick="onSelectPreview(event.target, 5)">License</span>
 					<hr>
 				</div>
@@ -220,30 +227,35 @@
 							<span id="span_langs"></span>
 						</div>
 					</div>
-					<div id="div_readme_link" class="div_selected_info">
-						<span id="span_lern" class="font_bold">Learn how to use </span>
-						<span id="span_lern_plugin">the plugin in </span>
-						<a id="link_readme" class="aboutlink link_info" target="blank" href="">README.</a>
-					</div>
-					<div id="div_github_link" class="div_selected_info">
-						<span id="span_contribute" class="font_bold">Contribute </span>
-						<span id="span_contribute_end">to the plugin development or report an issue on </span>
-						<a id="link_plugin" class="aboutlink link_info" target="blank">Github.</a>
-					</div>
-					<div class="div_selected_info">
-						<span id="span_help" class="font_bold">Get help </span>
-						<span id="span_help_end">with the plugin functionality on our forum.</span>
-					</div>
-					<div class="div_selected_info">
-						<span id="span_create">Create a new plugin using </span>
-						<a class="aboutlink link_info" target="blank" href="https://api.onlyoffice.com/docs/plugin-and-macros/get-started/">ONLYOFFICE API.</a>
+					<div id="div_info_preview" class="div_selected_info markdown-content hidden"></div>
+					<div id="div_info_fallback" class="div_info_fallback hidden">
+						<div id="div_support_cta" class="div_selected_info">
+							<span id="span_support_cta" class="font_bold">Need enterprise support?</span>
+							<button id="btn_info_buy_support" class="btn-text-default btn_item btn_support" type="button">Buy support</button>
+						</div>
+						<div id="div_github_link" class="div_selected_info">
+							<span id="span_contribute" class="font_bold">Contribute </span>
+							<span id="span_contribute_end">to the plugin development or report an issue on </span>
+							<a id="link_plugin" class="aboutlink link_info" target="blank">Github.</a>
+						</div>
+						<div class="div_selected_info">
+							<span id="span_help" class="font_bold">Get help </span>
+							<span id="span_help_end">with the plugin functionality on our forum.</span>
+						</div>
+						<div class="div_selected_info">
+							<span id="span_create">Create a new plugin using </span>
+							<a id="link_r7_api" class="aboutlink link_info" target="blank" href="https://r7-consult.ru/apir7c_apimain">R7 API.</a>
+						</div>
 					</div>
 				</div>
 				<div id="div_selected_changelog" class="div_selected_preview div_selected_preview_chanelog hidden">
 					<div id="div_changelog_preview"></div>
 				</div>
-				<div id="div_selected_readme" class="div_selected_preview hidden">
-					<div id="div_readme_preview" class="markdown-content"></div>
+				<div id="div_selected_support" class="div_selected_preview hidden">
+					<div id="div_support_preview" class="markdown-content"></div>
+					<div class="support-actions">
+						<button id="btn_support_buy" class="support-action support-action-primary" type="button">Buy support</button>
+					</div>
 				</div>
 				<div id="div_selected_license" class="div_selected_preview hidden">
 					<div id="div_license_preview" class="markdown-content"></div>
@@ -285,7 +297,8 @@
 				</div>
 				<div class="welcome-popup-tabs" role="tablist" aria-label="Welcome tabs">
 					<button id="welcome-tab-welcome" class="welcome-tab welcome-tab-active" type="button" role="tab" aria-selected="true">Welcome</button>
-					<button id="welcome-tab-readme" class="welcome-tab" type="button" role="tab" aria-selected="false">README</button>
+					<button id="welcome-tab-support" class="welcome-tab welcome-tab-support" type="button" role="tab" aria-selected="false">Support</button>
+					<button id="welcome-tab-readme" class="welcome-tab" type="button" role="tab" aria-selected="false">Information</button>
 					<button id="welcome-tab-license" class="welcome-tab" type="button" role="tab" aria-selected="false">License</button>
 				</div>
 				<div class="welcome-popup-content">
@@ -303,6 +316,12 @@
 								<div class="welcome-subtitle">Коммерческая версия</div>
 								<p class="welcome-muted">Все права принадлежат ООО Датаконс.</p>
 							</div>
+						</div>
+					</div>
+					<div id="welcome-tab-panel-support" class="welcome-tab-panel hidden">
+						<div id="support-markdown" class="welcome-body markdown-content"></div>
+						<div class="support-actions support-actions-popup">
+							<button id="btn_popup_support_buy" class="support-action support-action-primary" type="button">Buy support</button>
 						</div>
 					</div>
 					<div id="welcome-tab-panel-readme" class="welcome-tab-panel hidden">

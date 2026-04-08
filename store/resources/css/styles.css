@@ -327,6 +327,24 @@ body.theme-type-dark .btn_icon {
     box-shadow: none;
 }
 
+.btn_icon_support {
+    color: #b76f00;
+    border-color: rgba(183, 111, 0, 0.38);
+    background: rgba(183, 111, 0, 0.08);
+    box-shadow: inset 0 0 0 1px rgba(183, 111, 0, 0.05);
+}
+
+.btn_icon_support:hover {
+    border-color: rgba(183, 111, 0, 0.62);
+    background: rgba(183, 111, 0, 0.14);
+}
+
+body.theme-type-dark .btn_icon_support {
+    color: #ffcf6a;
+    border-color: rgba(255, 207, 106, 0.36);
+    background: rgba(255, 207, 106, 0.08);
+}
+
 body.theme-type-dark .btn_store_update {
     color: #9cdcfe;
     background: rgba(14, 99, 156, 0.24);
@@ -447,9 +465,22 @@ body.theme-type-dark .btn_store_update:hover {
     font-weight: 600;
 }
 
+.welcome-tab-support {
+    border-color: #b88200 !important;
+    color: #8a6100;
+}
+
+body.theme-type-dark .welcome-tab-support {
+    color: #ffcf6a;
+}
+
 .welcome-tab-active {
     background: var(--vscode-tab-activeBackground);
     box-shadow: inset 0 2px 0 0 var(--vscode-tab-activeBorderTop);
+}
+
+.welcome-tab-support.welcome-tab-active {
+    box-shadow: inset 0 2px 0 0 #b88200;
 }
 
 .welcome-tab-panel {
@@ -463,6 +494,66 @@ body.theme-type-dark .btn_store_update:hover {
     border-top: 1px solid var(--pm-border);
     display: flex;
     justify-content: flex-end;
+}
+
+.support-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.div_info_fallback {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+#div_info_preview {
+    margin-top: 14px;
+}
+
+#div_support_cta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    border: 1px solid var(--pm-border);
+    border-radius: 8px;
+    background: var(--vscode-tab-inactiveBackground);
+}
+
+.support-actions-popup {
+    margin-top: 18px;
+}
+
+.support-action {
+    min-height: 32px;
+    padding: 0 14px;
+    border-radius: 6px;
+    border: 1px solid var(--pm-border) !important;
+    background: transparent;
+    color: var(--pm-text);
+    cursor: pointer;
+    font-weight: 600;
+    transition: background 0.1s ease, border-color 0.1s ease, color 0.1s ease;
+}
+
+.support-action:hover {
+    border-color: var(--pm-accent) !important;
+    background: var(--vscode-list-hoverBackground);
+}
+
+.support-action-primary {
+    background: transparent;
+    color: var(--pm-text);
+    border-color: #b88200 !important;
+}
+
+.support-action-primary:hover {
+    background: rgba(184, 130, 0, 0.08);
+    border-color: #b88200 !important;
 }
 
 .welcome-title {
@@ -794,7 +885,7 @@ body.theme-type-dark .btn_store_update:hover {
 .btn_updateAll,
 .btn_item,
 .btn_preview {
-    background: var(--pm-button) !important;
+    background: transparent !important;
     color: var(--pm-text) !important;
     border: 1px solid var(--pm-border) !important;
     border-radius: var(--pm-radius) !important;
@@ -812,14 +903,25 @@ body.theme-type-dark .btn_store_update:hover {
 }
 
 .btn_install {
-    background: var(--vscode-button-background) !important;
-    color: var(--vscode-button-foreground) !important;
-    border-color: var(--vscode-button-background) !important;
+    background: transparent !important;
+    color: var(--pm-text) !important;
+    border-color: #1e73c9 !important;
 }
 
 .btn_install:hover {
-    background: var(--vscode-button-hoverBackground) !important;
-    border-color: var(--vscode-button-hoverBackground) !important;
+    background: rgba(30, 115, 201, 0.08) !important;
+    border-color: #1e73c9 !important;
+}
+
+.btn_support {
+    background: transparent !important;
+    color: var(--pm-text) !important;
+    border-color: #d48212 !important;
+}
+
+.btn_support:hover {
+    background: rgba(212, 130, 18, 0.08) !important;
+    border-color: #d48212 !important;
 }
 
 .btn_install:disabled,
@@ -828,14 +930,25 @@ body.theme-type-dark .btn_store_update:hover {
     opacity: 0.6;
     cursor: not-allowed;
     pointer-events: none;
-    background: var(--pm-button) !important;
+    background: transparent !important;
     color: var(--pm-text) !important;
     border-color: var(--pm-border) !important;
 }
 
 .btn_remove {
-    background: var(--pm-button) !important;
-    color: var(--pm-text-muted) !important;
+    background: transparent !important;
+    color: var(--pm-text) !important;
+    border-color: #d04a4a !important;
+}
+
+.btn_remove:hover {
+    background: rgba(208, 74, 74, 0.08) !important;
+    border-color: #d04a4a !important;
+}
+
+.btn_update,
+.btn_updateAll {
+    border-color: #1e73c9 !important;
 }
 
 .btn_item {
@@ -929,15 +1042,14 @@ body.theme-type-dark .btn_store_update:hover {
 }
 
 .div_description {
-    display: grid;
-    grid-template-rows: auto 1fr;
+    display: flex;
     padding: 0;
     gap: 6px;
     grid-column: 2;
     min-width: 0;
     min-height: 0;
-    align-self: stretch;
     overflow: hidden;
+    flex-direction: column;
 }
 
 .span_name {
@@ -1486,6 +1598,19 @@ select:focus-visible,
 	line-height: 1;
 }
 
+.next::after {
+	content: "\203A";
+}
+
+.prev::after {
+	content: "\2039";
+}
+
+.prev::after,
+.next::after {
+	font-family: Arial, sans-serif;
+}
+
 .prev:hover, .next:hover {
     background: rgba(210, 210, 215, 0.95);
 }
@@ -1565,6 +1690,48 @@ select:focus-visible,
 	color: var(--pm-text) !important;
 	border: 1px solid var(--pm-border) !important;
 	border-radius: var(--pm-radius) !important;
+}
+
+.btn-text-default.btn_install,
+.btn-text-default.btn_update,
+.btn-text-default.btn_updateAll,
+.btn-text-default.btn_remove,
+.btn-text-default.btn_support,
+.btn-text-default.btn_item,
+.btn-text-default.btn_preview {
+	background: transparent !important;
+	color: var(--pm-text) !important;
+}
+
+.btn-text-default.btn_install,
+.btn-text-default.btn_update,
+.btn-text-default.btn_updateAll {
+	border-color: #1e73c9 !important;
+}
+
+.btn-text-default.btn_remove {
+	border-color: #d04a4a !important;
+}
+
+.btn-text-default.btn_support {
+	border-color: #d48212 !important;
+}
+
+.btn-text-default.btn_install:hover,
+.btn-text-default.btn_update:hover,
+.btn-text-default.btn_updateAll:hover {
+	background: rgba(30, 115, 201, 0.08) !important;
+	border-color: #1e73c9 !important;
+}
+
+.btn-text-default.btn_remove:hover {
+	background: rgba(208, 74, 74, 0.08) !important;
+	border-color: #d04a4a !important;
+}
+
+.btn-text-default.btn_support:hover {
+	background: rgba(212, 130, 18, 0.08) !important;
+	border-color: #d48212 !important;
 }
 
 .div_offered_votes,

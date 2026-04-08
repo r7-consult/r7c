@@ -36,13 +36,18 @@
   "Plugin marketplace is powered by {r7} consult. All rights reserved.": "Плагин-маркетплейс работает на базе {r7} consult. Все права защищены.",
   "Offered by": "Предложено",
   "Overview": "Обзор",
+  "Information": "Информация",
   "Info & Support": "Информация & Поддержка",
+  "Support": "Поддержка",
+  "Buy support": "Купить поддержку",
+  "Telegram": "Telegram",
   "Learn how to use": "Узнайте как использовать",
   "the plugin in": "плагин в",
   "Contribute": "Внесите свой вклад",
   "to the plugin development or report an issue on": "в разработку плагина или сообщите о проблеме на",
   "Get help": "Получите помощь",
   "with the plugin functionality on our forum.": "с функциональностью плагина на нашем форуме.",
+  "Need enterprise support?": "Нужна коммерческая поддержка?",
   "Create a new plugin using": "Создайте новый плагин, используя",
   "Loading": "Загрузка",
   "Installation": "Установка",
@@ -87,5 +92,6 @@
   "Problem with loading some resources": "Проблема с загрузкой некоторых ресурсов",
   "Click to rate": "Нажмите, чтобы оценить",
   "No disscussion page for this plugin.": "Нет страницы дискуссии для этого плагина.",
-  "Problem with plugin installation.": "Проблемы с установкой плагина."
+  "Problem with plugin installation.": "Проблемы с установкой плагина.",
+  "License": "Лицензия"
 }
