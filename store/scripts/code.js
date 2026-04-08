@@ -66,6 +66,7 @@ const storeRemoteConfigUrl = OOStoreUpdateUrl + 'config.json';
 const themeOverrideKey = 'pm_theme_override';
 const maxCommunityUrl = 'https://max.ru/join/hD88sOjvSS9nBmaEvRMcH1NQF53liVba_iJBngnDnUo';
 const telegramCommunityUrl = 'https://t.me/r7_js';
+const defaultSupportContactUrl = 'https://t.me/datacons';
 const contentRemoteBases = [
 	'https://raw.githubusercontent.com/r7-consult/r7c/main/',
 	'https://raw.githubusercontent.com/r7-consult/r7c/master/'
@@ -82,12 +83,15 @@ let closeAfterStoreUpdateModal = false;
 let popupContentLoaded = false;
 let popupWelcomeLoaded = false;
 let popupReadmeLoaded = false;
+let popupSupportLoaded = false;
 let popupLicenseLoaded = false;
-let selectedReadmeLoaded = false;
+let popupSupportPrefetchPromise = null;
+let selectedInfoLoaded = false;
 let selectedLicenseLoaded = false;
-let selectedPluginReadmeKey = '';
+let selectedSupportLoaded = false;
+let selectedPluginInfoKey = '';
 let selectedPluginLicenseKey = '';
-let selectedPluginReadmeSource = '';
+let selectedPluginSupportKey = '';
 let selectedPluginLicenseSource = '';
 let pendingRemoveAction = null;
 let pendingInstallContext = null;
@@ -115,8 +119,38 @@ const fallbackLicenseMarkdown = [
 const fallbackReadmeMarkdown = [
 	'# README',
 	'',
-	'Не удалось загрузить README.md.',
-	'Проверьте, что описание плагина добавлено в README.md или README_RU.md.'
+	'README сейчас недоступен.'
+].join('\n');
+const fallbackSupportMarkdown = [
+	'# Коммерческая поддержка',
+	'',
+	'Бесплатное ПО помогает быстро стартовать, но профессиональная поддержка помогает системе работать без сбоев.',
+	'',
+	'Хотя каталог плагинов `{r7} consult` распространяется бесплатно, использование неподдерживаемого софта в корпоративной среде создает прямые риски для бизнеса. Попытки решить проблему через форумы сообщества или методом "тыка" во время аварии часто приводят к простоям, потере данных и отвлечению внутренних команд от ключевых задач. Кроме того, часть исходного кода отдельных решений закрыта от прямого редактирования.',
+	'',
+	'## Почему "бесплатное" решение часто обходится компании дорого',
+	'',
+	'- **Нет ответственности и SLA.** У сообщества нет обязательств перед вашей компанией. Если критический баг остановит процессы, никто не обязан устранить его в согласованные сроки.',
+	'- **Риски комплаенса и безопасности.** Корпоративные стандарты аудита, требования регуляторов и внутренние политики безопасности требуют понятной цепочки поддержки и гарантированных патчей.',
+	'- **Скрытые издержки.** Время ваших инженеров, потраченное на разбор чужого кода и аварийные обходные решения, забирается у собственных проектов.',
+	'',
+	'## Что входит в пакет коммерческой поддержки',
+	'',
+	'- **Гарантированное время реакции.** Прямой доступ к экспертам с зафиксированным в договоре SLA.',
+	'- **Усиленная безопасность.** Доступ к закрытым исправлениям и патчам безопасности до их массовой публикации.',
+	'- **Влияние на продукт.** Возможность приоритетной доработки функций под задачи вашего бизнеса.',
+	'- **Поддержка внедрения.** Помощь при rollout, миграции, аудите и разборе инцидентов.',
+	'',
+	'## Не оставляйте инфраструктуру на волю случая',
+	'',
+	'Обеспечьте команде подушку безопасности, чтобы внедрять новые решения без страха перед простоями. Свяжитесь с нами, чтобы подобрать подходящий тариф поддержки.',
+	'',
+	'## Контакты',
+	'',
+	'- **ООО Датаконс**',
+	'- Сайт: [r7-consult.ru](https://r7-consult.ru/)',
+	'- Телефон: [+7 915 258-03-71](tel:+79152580371)',
+	'- Telegram: [@datacons](https://t.me/datacons)'
 ].join('\n');
 const storeUpdateManifestName = 'store-update-manifest.json';
 
@@ -324,6 +358,84 @@ function getCommercialLandingUrl(pluginConfig) {
 	return '';
 }
 
+function isTelegramSupportUrl(url) {
+	return typeof url === 'string' && /^(https?:\/\/t\.me\/|tg:\/\/)/i.test(url.trim());
+}
+
+function getSupportContactUrl(pluginConfig) {
+	if (!pluginConfig)
+		return defaultSupportContactUrl;
+	let variation = (pluginConfig.variations && pluginConfig.variations[0]) ? pluginConfig.variations[0] : null;
+	let store = variation && variation.store ? variation.store : null;
+	let candidates = [];
+
+	if (store) {
+		candidates.push(
+			store.supportTelegram,
+			store.supportTelegramUrl,
+			store.supportTelegramLink,
+			store.supportChat,
+			store.supportChatUrl,
+			store.supportChatLink
+		);
+		if (typeof store.support === 'string') {
+			candidates.push(store.support);
+		} else if (store.support && typeof store.support === 'object') {
+			candidates.push(
+				store.support.telegram,
+				store.support.telegramUrl,
+				store.support.telegramLink,
+				store.support.chat,
+				store.support.chatUrl,
+				store.support.chatLink,
+				store.support.url,
+				store.support.link,
+				store.support.website,
+				store.support.landingUrl
+			);
+		}
+		candidates.push(store.supportUrl, store.supportLink);
+	}
+
+	candidates.push(
+		pluginConfig.supportTelegram,
+		pluginConfig.supportTelegramUrl,
+		pluginConfig.supportTelegramLink,
+		pluginConfig.supportChat,
+		pluginConfig.supportChatUrl,
+		pluginConfig.supportChatLink,
+		pluginConfig.supportUrl,
+		pluginConfig.supportLink
+	);
+
+	for (let i = 0; i < candidates.length; i++) {
+		if (isTelegramSupportUrl(candidates[i]))
+			return candidates[i];
+	}
+
+	return defaultSupportContactUrl;
+}
+
+function getSelectedPluginContext() {
+	let guid = elements.divSelected ? elements.divSelected.getAttribute('data-guid') : '';
+	let plugin = findPlugin(true, guid);
+	if (!plugin) {
+		let installed = findPlugin(false, guid);
+		plugin = installed ? installed.obj : null;
+	}
+	return { guid: guid, plugin: plugin };
+}
+
+function openSupportLanding(source) {
+	let context = getSelectedPluginContext();
+	trackGoal('support_buy_click', {
+		source: source || 'unknown',
+		plugin_guid: context.guid,
+		plugin_name: getPluginLabelByGuid(context.guid)
+	});
+	openExternalUrl(getSupportContactUrl(context.plugin));
+}
+
 async function ensureCommercialAccess(pluginConfig) {
 	let gate = window.TelegramCommercialGate;
 	if (!isCommercialPluginConfig(pluginConfig))
@@ -345,7 +457,7 @@ function getReadmeCandidates() {
 	let candidates = [];
 	if (shortLang === 'ru')
 		candidates.push('README_RU.md', 'README_ru.md', 'readme_ru.md');
-	return candidates.concat(['README.md', 'README.MD', 'readme.md']);
+	return candidates.concat(['README.md', 'README.MD', 'readme.md', 'Readme.md']);
 }
 
 async function fetchSelectedPluginMarkdown(baseUrl, candidates) {
@@ -380,6 +492,10 @@ async function fetchSelectedPluginReadme(baseUrl) {
 	return fetchSelectedPluginMarkdown(baseUrl, getReadmeCandidates());
 }
 
+async function fetchSelectedPluginSupport(baseUrl) {
+	return fetchSelectedPluginMarkdown(baseUrl, ['support.md', 'SUPPORT.md', 'Support.md']);
+}
+
 function renderMarkdown(markdownText) {
 	if (!markdownText)
 		return '';
@@ -395,6 +511,39 @@ function renderMarkdown(markdownText) {
 	} catch (e) {
 	}
 	return markdownText.replace(/\n/g, '<br>');
+}
+
+function renderMarkdownWithBase(markdownText, baseUrl) {
+	let html = renderMarkdown(markdownText);
+	if (!html || !baseUrl)
+		return html;
+	let normalizedBase = baseUrl.endsWith('/') ? baseUrl : (baseUrl + '/');
+	try {
+		normalizedBase = new URL(normalizedBase, location.href).href;
+		let wrapper = document.createElement('div');
+		wrapper.innerHTML = html;
+		Array.prototype.forEach.call(wrapper.querySelectorAll('a[href]'), function(link) {
+			let href = link.getAttribute('href');
+			if (!href || href[0] === '#' || /^(?:[a-z]+:|\/\/)/i.test(href))
+				return;
+			try {
+				link.setAttribute('href', new URL(href, normalizedBase).href);
+			} catch (e) {
+			}
+		});
+		Array.prototype.forEach.call(wrapper.querySelectorAll('img[src]'), function(image) {
+			let src = image.getAttribute('src');
+			if (!src || /^(?:[a-z]+:|\/\/)/i.test(src))
+				return;
+			try {
+				image.setAttribute('src', new URL(src, normalizedBase).href);
+			} catch (e) {
+			}
+		});
+		return wrapper.innerHTML;
+	} catch (e) {
+		return html;
+	}
 }
 
 function hideRemoveConfirm() {
@@ -990,6 +1139,38 @@ async function fetchMarkdownWithFallback(fileName, fallbackMarkdown) {
 	return fallbackMarkdown;
 }
 
+async function fetchLocalMarkdown(fileName, fallbackMarkdown) {
+	let cacheBuster = 'v=' + Date.now();
+	try {
+		let localUrl = contentLocalBase + fileName + '?' + cacheBuster;
+		let localResponse = await fetch(localUrl, { cache: 'no-cache' });
+		if (localResponse.ok) {
+			let localText = await localResponse.text();
+			if (localText && localText.trim())
+				return localText;
+		}
+	} catch (e) {
+	}
+	return fallbackMarkdown;
+}
+
+async function fetchRemoteMarkdown(fileName, fallbackMarkdown) {
+	let cacheBuster = 'v=' + Date.now();
+	for (let i = 0; i < contentRemoteBases.length; i++) {
+		let remoteUrl = contentRemoteBases[i] + fileName + '?' + cacheBuster;
+		try {
+			let response = await fetch(remoteUrl, { cache: 'no-cache' });
+			if (response.ok) {
+				let text = await response.text();
+				if (text && text.trim())
+					return text;
+			}
+		} catch (e) {
+		}
+	}
+	return fallbackMarkdown;
+}
+
 function isAbsolutePluginUrl(value) {
 	return typeof value === 'string' && /^https?:\/\//i.test(value);
 }
@@ -1051,6 +1232,58 @@ async function fetchFirstMarkdown(candidates, fallbackMarkdown) {
 	return fallbackMarkdown;
 }
 
+async function fetchFirstLocalMarkdown(candidates, fallbackMarkdown) {
+	for (let i = 0; i < candidates.length; i++) {
+		let value = await fetchLocalMarkdown(candidates[i], '');
+		if (value && value.trim())
+			return value;
+	}
+	return fallbackMarkdown;
+}
+
+async function fetchFirstRemoteMarkdown(candidates, fallbackMarkdown) {
+	for (let i = 0; i < candidates.length; i++) {
+		let value = await fetchRemoteMarkdown(candidates[i], '');
+		if (value && value.trim())
+			return value;
+	}
+	return fallbackMarkdown;
+}
+
+function renderPopupSupportMarkdown(markdownText) {
+	if (!elements.supportMarkdown)
+		return;
+	elements.supportMarkdown.innerHTML = renderMarkdown(markdownText || fallbackSupportMarkdown);
+}
+
+function ensurePopupSupportContent() {
+	if (!elements.supportMarkdown)
+		return Promise.resolve(fallbackSupportMarkdown);
+	if (!elements.supportMarkdown.innerHTML.trim())
+		renderPopupSupportMarkdown(fallbackSupportMarkdown);
+	if (popupSupportPrefetchPromise)
+		return popupSupportPrefetchPromise;
+
+	let supportCandidates = ['support.md', 'SUPPORT.md', 'Support.md'];
+	popupSupportPrefetchPromise = (async function() {
+		let supportMarkdown = fallbackSupportMarkdown;
+		try {
+			supportMarkdown = await fetchFirstLocalMarkdown(supportCandidates, fallbackSupportMarkdown);
+		} catch (e) {
+		}
+		renderPopupSupportMarkdown(supportMarkdown);
+		popupSupportLoaded = true;
+		fetchFirstRemoteMarkdown(supportCandidates, '').then(function(remoteSupportMarkdown) {
+			if (!remoteSupportMarkdown || !remoteSupportMarkdown.trim() || remoteSupportMarkdown === supportMarkdown)
+				return;
+			renderPopupSupportMarkdown(remoteSupportMarkdown);
+		}).catch(function() {});
+		return supportMarkdown;
+	})();
+
+	return popupSupportPrefetchPromise;
+}
+
 function closeStorePluginWindow() {
 	try {
 		if (window.parent && window.parent !== window) {
@@ -1085,35 +1318,54 @@ async function ensureStoreStartupAccess() {
 }
 
 function switchWelcomeTab(tabName) {
-	let targetTab = (tabName === 'license' || tabName === 'readme') ? tabName : 'welcome';
-	let isWelcome = targetTab === 'welcome';
-	let isReadme = targetTab === 'readme';
-	let isLicense = targetTab === 'license';
+	let activeTab = 'welcome';
+	if (tabName === 'readme')
+		activeTab = 'readme';
+	else if (tabName === 'support')
+		activeTab = 'support';
+	else if (tabName === 'license')
+		activeTab = 'license';
+	let isWelcome = activeTab === 'welcome';
+	let isReadme = activeTab === 'readme';
+	let isSupport = activeTab === 'support';
+	let isLicense = activeTab === 'license';
 	if (elements.welcomeTabWelcome)
 		elements.welcomeTabWelcome.classList.toggle('welcome-tab-active', isWelcome);
 	if (elements.welcomeTabReadme)
 		elements.welcomeTabReadme.classList.toggle('welcome-tab-active', isReadme);
+	if (elements.welcomeTabSupport)
+		elements.welcomeTabSupport.classList.toggle('welcome-tab-active', isSupport);
 	if (elements.welcomeTabLicense)
 		elements.welcomeTabLicense.classList.toggle('welcome-tab-active', isLicense);
 	if (elements.welcomeTabWelcome)
 		elements.welcomeTabWelcome.setAttribute('aria-selected', isWelcome ? 'true' : 'false');
 	if (elements.welcomeTabReadme)
 		elements.welcomeTabReadme.setAttribute('aria-selected', isReadme ? 'true' : 'false');
+	if (elements.welcomeTabSupport)
+		elements.welcomeTabSupport.setAttribute('aria-selected', isSupport ? 'true' : 'false');
 	if (elements.welcomeTabLicense)
 		elements.welcomeTabLicense.setAttribute('aria-selected', isLicense ? 'true' : 'false');
 	if (elements.welcomeTabPanelWelcome)
 		elements.welcomeTabPanelWelcome.classList.toggle('hidden', !isWelcome);
 	if (elements.welcomeTabPanelReadme)
 		elements.welcomeTabPanelReadme.classList.toggle('hidden', !isReadme);
+	if (elements.welcomeTabPanelSupport)
+		elements.welcomeTabPanelSupport.classList.toggle('hidden', !isSupport);
 	if (elements.welcomeTabPanelLicense)
 		elements.welcomeTabPanelLicense.classList.toggle('hidden', !isLicense);
 	if (elements.welcomePopupModal)
-		elements.welcomePopupModal.classList.toggle('welcome-popup-license-mode', !isWelcome);
-	trackGoal('welcome_tab_switch', { tab: targetTab });
+		elements.welcomePopupModal.classList.toggle('welcome-popup-license-mode', isLicense);
+	trackGoal('welcome_tab_switch', { tab: activeTab });
 }
 
 async function loadPopupContent(tabName) {
-	let targetTab = (tabName === 'license' || tabName === 'readme') ? tabName : 'welcome';
+	let targetTab = 'welcome';
+	if (tabName === 'readme')
+		targetTab = 'readme';
+	else if (tabName === 'support')
+		targetTab = 'support';
+	else if (tabName === 'license')
+		targetTab = 'license';
 	if (targetTab === 'welcome') {
 		if (popupWelcomeLoaded)
 			return;
@@ -1136,6 +1388,10 @@ async function loadPopupContent(tabName) {
 		if (elements.readmeMarkdown)
 			elements.readmeMarkdown.innerHTML = renderMarkdown(readmeMarkdown);
 		popupReadmeLoaded = true;
+	} else if (targetTab === 'support') {
+		if (popupSupportLoaded && popupSupportPrefetchPromise)
+			return;
+		await ensurePopupSupportContent();
 	} else {
 		if (popupLicenseLoaded)
 			return;
@@ -1149,32 +1405,7 @@ async function loadPopupContent(tabName) {
 		popupLicenseLoaded = true;
 	}
 
-	popupContentLoaded = popupWelcomeLoaded && popupReadmeLoaded && popupLicenseLoaded;
-}
-
-async function loadSelectedReadmePreview() {
-	let sourceKey = selectedPluginReadmeSource || '';
-	if (selectedReadmeLoaded && selectedPluginReadmeKey === sourceKey)
-		return;
-	if (!elements.divReadmePreview)
-		return;
-	elements.divReadmePreview.innerHTML = renderMarkdown('Загрузка README плагина...');
-	let readmeMarkdown = '';
-	try {
-		readmeMarkdown = await fetchSelectedPluginReadme(sourceKey);
-	} catch (e) {
-	}
-	if (!readmeMarkdown.trim()) {
-		readmeMarkdown = [
-			'# README',
-			'',
-			'Для выбранного плагина README не найден.',
-			'Проверьте, что в папке плагина есть README.md или README_RU.md.'
-		].join('\n');
-	}
-	elements.divReadmePreview.innerHTML = renderMarkdown(readmeMarkdown);
-	selectedReadmeLoaded = true;
-	selectedPluginReadmeKey = sourceKey;
+	popupContentLoaded = popupWelcomeLoaded && popupReadmeLoaded && popupSupportLoaded && popupLicenseLoaded;
 }
 
 async function loadSelectedLicensePreview() {
@@ -1197,15 +1428,72 @@ async function loadSelectedLicensePreview() {
 			'Проверьте, что в папке плагина есть файл LICENSE.md.'
 		].join('\n');
 	}
-	elements.divLicensePreview.innerHTML = renderMarkdown(licenseMarkdown);
+	elements.divLicensePreview.innerHTML = renderMarkdownWithBase(licenseMarkdown, sourceKey);
 	selectedLicenseLoaded = true;
 	selectedPluginLicenseKey = sourceKey;
+}
+
+async function loadSelectedInfoPreview() {
+	let sourceKey = getSelectedPluginLicenseBase();
+	if (selectedInfoLoaded && selectedPluginInfoKey === sourceKey)
+		return;
+	if (!elements.divInfoPreview || !elements.divInfoFallback)
+		return;
+	elements.divInfoPreview.innerHTML = renderMarkdown(getTranslated('Loading') + '...');
+	elements.divInfoPreview.classList.remove('hidden');
+	elements.divInfoFallback.classList.add('hidden');
+	let readmeMarkdown = '';
+	try {
+		readmeMarkdown = await fetchSelectedPluginReadme(sourceKey);
+	} catch (e) {
+	}
+	if (readmeMarkdown && readmeMarkdown.trim()) {
+		elements.divInfoPreview.innerHTML = renderMarkdownWithBase(readmeMarkdown, sourceKey);
+		elements.divInfoPreview.classList.remove('hidden');
+		elements.divInfoFallback.classList.add('hidden');
+	} else {
+		elements.divInfoPreview.innerHTML = '';
+		elements.divInfoPreview.classList.add('hidden');
+		elements.divInfoFallback.classList.remove('hidden');
+	}
+	selectedInfoLoaded = true;
+	selectedPluginInfoKey = sourceKey;
+}
+
+async function loadSelectedSupportPreview() {
+	let sourceKey = getSelectedPluginLicenseBase();
+	if (selectedSupportLoaded && selectedPluginSupportKey === sourceKey)
+		return;
+	if (!elements.divSupportPreview)
+		return;
+	elements.divSupportPreview.innerHTML = renderMarkdown(getTranslated('Loading') + '...');
+	let supportMarkdown = '';
+	try {
+		supportMarkdown = await fetchSelectedPluginSupport(sourceKey);
+	} catch (e) {
+	}
+	if (!supportMarkdown.trim()) {
+		try {
+			supportMarkdown = await fetchFirstMarkdown(['support.md', 'SUPPORT.md', 'Support.md'], fallbackSupportMarkdown);
+		} catch (e) {
+			supportMarkdown = fallbackSupportMarkdown;
+		}
+	}
+	elements.divSupportPreview.innerHTML = renderMarkdownWithBase(supportMarkdown, sourceKey);
+	selectedSupportLoaded = true;
+	selectedPluginSupportKey = sourceKey;
 }
 
 function showWelcomePopup(tabName) {
 	if (!elements.welcomePopupOverlay)
 		return;
-	let targetTab = (tabName === 'license' || tabName === 'readme') ? tabName : 'welcome';
+	let targetTab = 'welcome';
+	if (tabName === 'readme')
+		targetTab = 'readme';
+	else if (tabName === 'support')
+		targetTab = 'support';
+	else if (tabName === 'license')
+		targetTab = 'license';
 	elements.welcomePopupOverlay.classList.remove('hidden');
 	switchWelcomeTab(targetTab);
 	loadPopupContent(targetTab);
@@ -1236,10 +1524,14 @@ function bindPopupLinkHandling() {
 		elements.welcomeMarkdown.addEventListener('click', onLinkClick);
 	if (elements.readmeMarkdown)
 		elements.readmeMarkdown.addEventListener('click', onLinkClick);
+	if (elements.supportMarkdown)
+		elements.supportMarkdown.addEventListener('click', onLinkClick);
 	if (elements.licenseMarkdown)
 		elements.licenseMarkdown.addEventListener('click', onLinkClick);
-	if (elements.divReadmePreview)
-		elements.divReadmePreview.addEventListener('click', onLinkClick);
+	if (elements.divInfoPreview)
+		elements.divInfoPreview.addEventListener('click', onLinkClick);
+	if (elements.divSupportPreview)
+		elements.divSupportPreview.addEventListener('click', onLinkClick);
 	if (elements.divLicensePreview)
 		elements.divLicensePreview.addEventListener('click', onLinkClick);
 	if (elements.welcomeAside)
@@ -1299,7 +1591,14 @@ const isIE = (navigator.userAgent.toLowerCase().indexOf("msie") > -1 ||
 // it's necessary because we show loader before all (and getting translations too)
 switch (shortLang) {
 	case 'ru':
-		translate["Loading"] = "Загрузка"
+		translate["Loading"] = "Загрузка";
+		translate["Welcome"] = "Добро пожаловать";
+		translate["Support"] = "Поддержка";
+		translate["Information"] = "Информация";
+		translate["License"] = "Лицензия";
+		translate["Buy support"] = "Купить поддержку";
+		translate["Reload"] = "Перезагрузить";
+		translate["Telegram"] = "Telegram";
 		break;
 	case 'fr':
 		translate["Loading"] = "Chargement"
@@ -1365,6 +1664,8 @@ window.onload = async function() {
 		document.body.classList.remove('white_bg');
 	// init element
 	initElemnts();
+	applyBootstrapLabels();
+	ensurePopupSupportContent();
 	try {
 		if (window.Asc && window.Asc.plugin && typeof window.Asc.plugin.resizeWindow === 'function')
 			window.Asc.plugin.resizeWindow(1200, 600, 600, 600, 0, 0);
@@ -1388,6 +1689,11 @@ window.onload = async function() {
 			showWelcomePopup('license');
 		};
 	}
+	if (elements.btnSupportHeader) {
+		elements.btnSupportHeader.onclick = function() {
+			openSupportLanding('header_support');
+		};
+	}
 	if (elements.btnMax) {
 		elements.btnMax.onclick = function() {
 			openExternalUrl(maxCommunityUrl);
@@ -1396,6 +1702,26 @@ window.onload = async function() {
 	if (elements.btnTelegram) {
 		elements.btnTelegram.onclick = function() {
 			openExternalUrl(telegramCommunityUrl);
+		};
+	}
+	if (elements.btnBuySupport) {
+		elements.btnBuySupport.onclick = function() {
+			openSupportLanding('selected_toolbar');
+		};
+	}
+	if (elements.btnInfoBuySupport) {
+		elements.btnInfoBuySupport.onclick = function() {
+			openSupportLanding('info_panel');
+		};
+	}
+	if (elements.btnSupportBuy) {
+		elements.btnSupportBuy.onclick = function() {
+			openSupportLanding('selected_support_tab');
+		};
+	}
+	if (elements.btnPopupSupportBuy) {
+		elements.btnPopupSupportBuy.onclick = function() {
+			openSupportLanding('welcome_support_tab');
 		};
 	}
 	if (elements.btnReload) {
@@ -1465,6 +1791,12 @@ window.onload = async function() {
 		elements.welcomeTabReadme.onclick = function() {
 			switchWelcomeTab('readme');
 			loadPopupContent('readme');
+		};
+	}
+	if (elements.welcomeTabSupport) {
+		elements.welcomeTabSupport.onclick = function() {
+			switchWelcomeTab('support');
+			loadPopupContent('support');
 		};
 	}
 	if (elements.welcomeTabLicense) {
@@ -1921,6 +2253,7 @@ function initElemnts() {
 	elements.btnSettings = document.getElementById('btn_settings');
 	elements.btnMax = document.getElementById('btn_max');
 	elements.btnTelegram = document.getElementById('btn_telegram');
+	elements.btnSupportHeader = document.getElementById('btn_support_header');
 	elements.btnStoreUpdate = document.getElementById('btn_store_update');
 	elements.btnReload = document.getElementById('btn_reload');
 	elements.btnLicense = document.getElementById('btn_license');
@@ -1945,18 +2278,22 @@ function initElemnts() {
 	elements.welcomePopupOk = document.getElementById('welcome-ok');
 	elements.welcomeTabWelcome = document.getElementById('welcome-tab-welcome');
 	elements.welcomeTabReadme = document.getElementById('welcome-tab-readme');
+	elements.welcomeTabSupport = document.getElementById('welcome-tab-support');
 	elements.welcomeTabLicense = document.getElementById('welcome-tab-license');
 	elements.welcomeTabPanelWelcome = document.getElementById('welcome-tab-panel-welcome');
 	elements.welcomeTabPanelReadme = document.getElementById('welcome-tab-panel-readme');
+	elements.welcomeTabPanelSupport = document.getElementById('welcome-tab-panel-support');
 	elements.welcomeTabPanelLicense = document.getElementById('welcome-tab-panel-license');
 	elements.welcomeMarkdown = document.getElementById('welcome-markdown');
 	elements.readmeMarkdown = document.getElementById('readme-markdown');
+	elements.supportMarkdown = document.getElementById('support-markdown');
 	elements.licenseMarkdown = document.getElementById('license-markdown');
-	elements.divSelectedReadme = document.getElementById('div_selected_readme');
-	elements.divReadmePreview = document.getElementById('div_readme_preview');
-	elements.spanReadme = document.getElementById('span_readme');
+	elements.divSelectedSupport = document.getElementById('div_selected_support');
 	elements.divSelectedLicense = document.getElementById('div_selected_license');
+	elements.divSupportPreview = document.getElementById('div_support_preview');
 	elements.divLicensePreview = document.getElementById('div_license_preview');
+	elements.spanInfo = document.getElementById('span_info');
+	elements.spanSupport = document.getElementById('span_support');
 	elements.spanLicense = document.getElementById('span_license');
 	elements.welcomeAside = document.getElementById('welcome-aside');
 	elements.settingsTitle = document.getElementById('settings_title');
@@ -1969,10 +2306,16 @@ function initElemnts() {
 	elements.btnRemove = document.getElementById('btn_remove');
 	elements.btnInstall = document.getElementById('btn_install');
 	elements.btnLearnMore = document.getElementById('btn_learn_more');
+	elements.btnBuySupport = document.getElementById('btn_buy_support');
+	elements.btnInfoBuySupport = document.getElementById('btn_info_buy_support');
+	elements.btnSupportBuy = document.getElementById('btn_support_buy');
+	elements.btnPopupSupportBuy = document.getElementById('btn_popup_support_buy');
 	elements.spanSelectedDescr = document.getElementById('span_selected_description');
 	elements.linkPlugin = document.getElementById('link_plugin');
 	elements.divScreen = document.getElementById("div_selected_image");
 	elements.divGitLink = document.getElementById('div_github_link');
+	elements.divInfoPreview = document.getElementById('div_info_preview');
+	elements.divInfoFallback = document.getElementById('div_info_fallback');
 	elements.spanVersion = document.getElementById('span_ver');
 	elements.divVersion = document.getElementById('div_version');
 	elements.spanMinVersion = document.getElementById('span_min_ver');
@@ -1988,9 +2331,36 @@ function initElemnts() {
 	elements.divVotes = document.getElementById('div_votes');
 	elements.arrowPrev = document.getElementById('prev_arrow');
 	elements.arrowNext = document.getElementById('next_arrow');
-	elements.divReadme = document.getElementById('div_readme_link');
-	elements.linkReadme = document.getElementById('link_readme');
 };
+
+function applyBootstrapLabels() {
+	if (elements.welcomeTabWelcome)
+		elements.welcomeTabWelcome.innerHTML = getTranslated('Welcome');
+	if (elements.welcomeTabSupport)
+		elements.welcomeTabSupport.innerHTML = getTranslated('Support');
+	if (elements.welcomeTabReadme)
+		elements.welcomeTabReadme.innerHTML = getTranslated('Information');
+	if (elements.welcomeTabLicense)
+		elements.welcomeTabLicense.innerHTML = getTranslated('License');
+	if (elements.btnPopupSupportBuy)
+		elements.btnPopupSupportBuy.innerHTML = getTranslated('Buy support');
+	if (elements.btnLicense) {
+		elements.btnLicense.title = getTranslated('License');
+		elements.btnLicense.setAttribute('aria-label', getTranslated('License'));
+	}
+	if (elements.btnSupportHeader) {
+		elements.btnSupportHeader.title = getTranslated('Buy support');
+		elements.btnSupportHeader.setAttribute('aria-label', getTranslated('Buy support'));
+	}
+	if (elements.btnTelegram) {
+		elements.btnTelegram.title = getTranslated('Telegram');
+		elements.btnTelegram.setAttribute('aria-label', getTranslated('Telegram'));
+	}
+	if (elements.btnReload) {
+		elements.btnReload.title = getTranslated('Reload');
+		elements.btnReload.setAttribute('aria-label', getTranslated('Reload'));
+	}
+}
 
 function toogleLoader(show, text) {
 	// show or hide loader (don't use elements for this function)
@@ -2597,16 +2967,30 @@ function onClickItem() {
 	}
 
 	selectedPluginLicenseSource = plugin.baseUrl || plugin.url || '';
-	selectedPluginReadmeSource = selectedPluginLicenseSource;
-	selectedPluginReadmeKey = '';
+	selectedPluginInfoKey = '';
 	selectedPluginLicenseKey = '';
-	selectedReadmeLoaded = false;
+	selectedPluginSupportKey = '';
+	selectedInfoLoaded = false;
 	selectedLicenseLoaded = false;
+	selectedSupportLoaded = false;
 	ensurePluginChangelogLoaded(plugin);
-	if (elements.divReadmePreview)
-		elements.divReadmePreview.innerHTML = renderMarkdown('Загрузка README плагина...');
+	if (elements.divInfoPreview) {
+		elements.divInfoPreview.innerHTML = '';
+		elements.divInfoPreview.classList.add('hidden');
+	}
+	if (elements.divInfoFallback)
+		elements.divInfoFallback.classList.add('hidden');
+	if (elements.divSupportPreview)
+		elements.divSupportPreview.innerHTML = renderMarkdown(getTranslated('Loading') + '...');
 	if (elements.divLicensePreview)
 		elements.divLicensePreview.innerHTML = renderMarkdown('Загрузка лицензии плагина...');
+
+	if (elements.spanInfo && elements.spanInfo.classList.contains('span_selected'))
+		loadSelectedInfoPreview();
+	if (elements.spanSupport && elements.spanSupport.classList.contains('span_selected'))
+		loadSelectedSupportPreview();
+	if (elements.spanLicense && elements.spanLicense.classList.contains('span_selected'))
+		loadSelectedLicensePreview();
 
 	let bWebUrl = !plugin.baseUrl.includes('http://') && !plugin.baseUrl.includes('file:') && !plugin.baseUrl.includes('../');
 	let bCorrectUrl = isLocal || bWebUrl;
@@ -2695,12 +3079,8 @@ function onClickItem() {
 	elements.spanSelectedDescr.innerHTML = this.children[1].children[1].innerText;
 	if (bWebUrl) {
 		elements.linkPlugin.setAttribute('href', pluginUrl);
-		elements.linkReadme.setAttribute('href', pluginUrl + 'README.md');
-		elements.divReadme.classList.remove('hidden');
 	} else {
 		elements.linkPlugin.setAttribute('href', '');
-		elements.linkReadme.setAttribute('href', '');
-		elements.divReadme.classList.add('hidden');
 	}
 	
 	if (discussionUrl && !isCommercial)
@@ -2784,18 +3164,19 @@ function onSelectPreview(target, type) {
 		target.classList.add("span_selected");
 		$(".div_selected_preview").addClass("hidden");
 
-		// type: 1 - Overview; 2 - Info; 3 - Changelog; 4 - README; 5 - License;
+		// type: 1 - Overview; 2 - Info; 3 - Changelog; 4 - Support; 5 - License
 		if (type === 1) {
 			document.getElementById('div_selected_preview').classList.remove('hidden');
 			setDivHeight();
 		} else if (type === 2) {
 			document.getElementById('div_selected_info').classList.remove('hidden');
+			loadSelectedInfoPreview();
 		} else if (type === 3) {
 			document.getElementById('div_selected_changelog').classList.remove('hidden');
 			PsChangelog.update();
 		} else if (type === 4) {
-			document.getElementById('div_selected_readme').classList.remove('hidden');
-			loadSelectedReadmePreview();
+			document.getElementById('div_selected_support').classList.remove('hidden');
+			loadSelectedSupportPreview();
 		} else {
 			document.getElementById('div_selected_license').classList.remove('hidden');
 			loadSelectedLicensePreview();
@@ -3083,17 +3464,29 @@ function onTranslate() {
 		elements.btnLicense.title = getTranslated('License');
 		elements.btnLicense.setAttribute('aria-label', getTranslated('License'));
 	}
+	if (elements.btnSupportHeader) {
+		elements.btnSupportHeader.title = getTranslated('Buy support');
+		elements.btnSupportHeader.setAttribute('aria-label', getTranslated('Buy support'));
+	}
 	if (elements.btnMax) {
 		elements.btnMax.title = 'MAX';
 		elements.btnMax.setAttribute('aria-label', 'MAX');
 	}
 	if (elements.btnTelegram) {
-		elements.btnTelegram.title = 'Telegram';
-		elements.btnTelegram.setAttribute('aria-label', 'Telegram');
+		elements.btnTelegram.title = getTranslated('Telegram');
+		elements.btnTelegram.setAttribute('aria-label', getTranslated('Telegram'));
 	}
 	elements.btnInstall.innerHTML = getTranslated('Install');
 	if (elements.btnLearnMore)
 		elements.btnLearnMore.innerHTML = getTranslated(messages.learnMore);
+	if (elements.btnBuySupport)
+		elements.btnBuySupport.innerHTML = getTranslated('Buy support');
+	if (elements.btnInfoBuySupport)
+		elements.btnInfoBuySupport.innerHTML = getTranslated('Buy support');
+	if (elements.btnSupportBuy)
+		elements.btnSupportBuy.innerHTML = getTranslated('Buy support');
+	if (elements.btnPopupSupportBuy)
+		elements.btnPopupSupportBuy.innerHTML = getTranslated('Buy support');
 	elements.btnRemove.innerHTML = getTranslated('Remove');
 	elements.btnUpdate.innerHTML = getTranslated('Update');
 	elements.btnUpdateAll.innerHTML = getTranslated('Update All');
@@ -3120,22 +3513,14 @@ function onTranslate() {
 	updateStoreHeaderVersionUI();
 	document.getElementById('span_offered_caption').innerHTML = getTranslated('Offered by') + ' ';
 	document.getElementById('span_overview').innerHTML = getTranslated('Overview');
-	document.getElementById('span_info').innerHTML = getTranslated('Info & Support');
-	if (elements.spanReadme)
-		elements.spanReadme.innerHTML = 'README';
+	document.getElementById('span_info').innerHTML = getTranslated('Information');
+	document.getElementById('span_support').innerHTML = getTranslated('Support');
 	document.getElementById('span_license').innerHTML = getTranslated('License');
-	if (elements.welcomeTabWelcome)
-		elements.welcomeTabWelcome.innerHTML = getTranslated('Welcome');
-	if (elements.welcomeTabReadme)
-		elements.welcomeTabReadme.innerHTML = 'README';
-	if (elements.welcomeTabLicense)
-		elements.welcomeTabLicense.innerHTML = getTranslated('License');
-	document.getElementById('span_lern').innerHTML = getTranslated('Learn how to use') + ' ';
-	document.getElementById('span_lern_plugin').innerHTML = getTranslated('the plugin in') + ' ';
 	document.getElementById('span_contribute').innerHTML = getTranslated('Contribute') + ' ';
 	document.getElementById('span_contribute_end').innerHTML = getTranslated('to the plugin development or report an issue on') + ' ';
 	document.getElementById('span_help').innerHTML = getTranslated('Get help') + ' ';
 	document.getElementById('span_help_end').innerHTML = getTranslated('with the plugin functionality on our forum.');
+	document.getElementById('span_support_cta').innerHTML = getTranslated('Need enterprise support?');
 	document.getElementById('span_create').innerHTML = getTranslated('Create a new plugin using') + ' ';
 	document.getElementById('span_ver_caption').innerHTML = getTranslated('Version') + ': ';
 	document.getElementById('span_min_ver_caption').innerHTML = getTranslated('The minimum supported editors version') + ': ';
@@ -3150,6 +3535,14 @@ function onTranslate() {
 	document.getElementById('opt_com').innerHTML = getTranslated('Communication');
 	document.getElementById('opt_spec').innerHTML = getTranslated('Special abilities');
 	document.getElementById('discussion_link').innerHTML = getTranslated('Click to rate');
+	if (elements.welcomeTabWelcome)
+		elements.welcomeTabWelcome.innerHTML = getTranslated('Welcome');
+	if (elements.welcomeTabReadme)
+		elements.welcomeTabReadme.innerHTML = getTranslated('Information');
+	if (elements.welcomeTabSupport)
+		elements.welcomeTabSupport.innerHTML = getTranslated('Support');
+	if (elements.welcomeTabLicense)
+		elements.welcomeTabLicense.innerHTML = getTranslated('License');
 	if (elements.btnSettings)
 		elements.btnSettings.title = getTranslated('Settings');
 	if (elements.btnReload) {
