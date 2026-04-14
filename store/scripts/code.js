@@ -23,9 +23,13 @@ let isPluginLoading = false;                                         // flag plu
 let isOnline = true;                                                 // flag internet connection
 isLocal && checkInternet();                                          // check internet connection (only for desktop)
 let interval = null;                                                 // interval for checking internet connection (if it doesn't work on launch)
-const OOMarketplaceUrl = 'https://raw.githubusercontent.com/r7-consult/r7c-packages/main/';            // url to store (for local version store in desktop)
-const OOStoreUpdateUrl = 'https://raw.githubusercontent.com/r7-consult/r7c/main/';                        // url to store plugin update source
+const storeRemoteBranch = 'testing';                                 // remote branch for the test stand
+const isDevelopmentStorefront = window.location.protocol.indexOf('http') === 0 && /^(127\.0\.0\.1|localhost)$/i.test(window.location.hostname);
+const developmentMarketplaceUrl = window.location.origin + '/r7c-packages/';
+const OOMarketplaceUrl = isDevelopmentStorefront ? developmentMarketplaceUrl : 'https://raw.githubusercontent.com/r7-consult/r7c-packages/' + storeRemoteBranch + '/';            // url to store (for local version store in desktop)
+const OOStoreUpdateUrl = 'https://raw.githubusercontent.com/r7-consult/r7c/' + storeRemoteBranch + '/';                        // url to store plugin update source
 const OOIO = 'https://github.com/r7-consult/r7c-packages/';                       // url to github repository (for links and discussions)
+const OOIOTreeUrl = OOIO + 'tree/' + storeRemoteBranch + '/';
 const discussionsUrl = OOIO + 'discussions/';                        // discussions url
 let searchTimeout = null;                                            // timeot for search
 let founded = [];                                                    // last founded elemens (for not to redraw if a result is the same)
@@ -68,11 +72,12 @@ const maxCommunityUrl = 'https://max.ru/join/hD88sOjvSS9nBmaEvRMcH1NQF53liVba_iJ
 const telegramCommunityUrl = 'https://t.me/r7_js';
 const defaultSupportContactUrl = 'https://t.me/datacons';
 const contentRemoteBases = [
-	'https://raw.githubusercontent.com/r7-consult/r7c/main/',
-	'https://raw.githubusercontent.com/r7-consult/r7c/master/'
+	'https://raw.githubusercontent.com/r7-consult/r7c/' + storeRemoteBranch + '/'
 ];
 const shouldLoadPluginLangs = false;
 const contentLocalBase = '../';
+let integrityManifest = null;
+let integrityPackages = Object.create(null);
 let storeLocalVersion = '';
 let storeRemoteVersion = '';
 let storeLocalGuid = '';
@@ -748,6 +753,21 @@ function fetchArrayBuffer(url, headers) {
 			throw new Error('HTTP ' + response.status + ' for ' + url);
 		return response.arrayBuffer();
 	});
+};
+
+function arrayBufferToHex(buffer) {
+	let bytes = new Uint8Array(buffer);
+	let result = '';
+	for (let i = 0; i < bytes.length; i += 1)
+		result += bytes[i].toString(16).padStart(2, '0');
+	return result;
+};
+
+async function computeSha256Hex(buffer) {
+	if (!window.crypto || !window.crypto.subtle)
+		throw new Error('SHA-256 verification is not supported in this runtime.');
+	let digest = await window.crypto.subtle.digest('SHA-256', buffer);
+	return arrayBufferToHex(digest);
 };
 
 function parseJsonText(text, label) {
@@ -1643,7 +1663,9 @@ window.Asc = {
 
 const pos = location.href.indexOf('store/index.html'); // position for make substring
 const ioUrl = location.href.substring(0, pos);         // real IO URL
-const configUrl = (isLocal ? OOMarketplaceUrl : location.href.substring(0, pos)) + 'store/config.json';
+const marketplaceRootUrl = (isLocal || isDevelopmentStorefront) ? OOMarketplaceUrl : location.href.substring(0, pos);
+const configUrl = marketplaceRootUrl + 'store/config.json';
+const integrityUrl = marketplaceRootUrl + 'store/integrity.json';
 
 // get translation file
 getTranslation();
@@ -1905,6 +1927,84 @@ function ensurePluginChangelogLoaded(plugin) {
 	);
 }
 
+function handlePluginInstalled(message) {
+	if (!message.guid) {
+		toogleLoader(false);
+		return;
+	}
+	if (pendingInstallContext && pendingInstallContext.guid === message.guid)
+		pendingInstallContext = null;
+	let plugin = findPlugin(true, message.guid);
+	let installed = findPlugin(false, message.guid);
+	if (!installed && plugin) {
+		installedPlugins.push(
+			{
+				baseUrl: plugin.url,
+				guid: message.guid,
+				canRemoved: true,
+				obj: plugin,
+				removed: false
+			}
+		);
+	} else if (installed) {
+		if (installed.obj.backup) {
+			sendMessage({ type: 'getInstalled', updateInstalled: true }, '*');
+		} else {
+			installed.removed = false;
+		}
+	}
+	if (plugin)
+		plugin.bHasUpdate = false;
+
+	changeAfterInstallOrRemove(true, message.guid);
+	trackGoal('plugin_install_success', {
+		plugin_guid: message.guid,
+		plugin_name: getPluginLabelByGuid(message.guid),
+		source: isLocal ? 'desktop' : 'web'
+	});
+	toogleLoader(false);
+}
+
+function handlePluginUpdated(message) {
+	updateCount--;
+	if (!message.guid) {
+		if (!updateCount) {
+			checkNoUpdated(true);
+			toogleLoader(false);
+		}
+		return;
+	}
+	let installed = findPlugin(false, message.guid);
+	let plugin = findPlugin(true, message.guid);
+
+	if (installed && plugin)
+		installed.obj.version = plugin.version;
+	if (plugin)
+		plugin.bHasUpdate = false;
+	if (plugin && elements.spanVersion)
+		elements.spanVersion.innerText = plugin.version;
+	changeAfterInstallOrRemove(true, message.guid);
+
+	if (!updateCount) {
+		checkNoUpdated(true);
+		toogleLoader(false);
+	}
+}
+
+function handlePluginOperationError(message, actionType) {
+	if (pendingInstallContext && (!message.guid || message.guid === pendingInstallContext.guid)) {
+		showInstallFailureModal(pendingInstallContext, message.error || message);
+		pendingInstallContext = null;
+	}
+	if (actionType === 'update' && updateCount > 0) {
+		updateCount--;
+		if (!updateCount)
+			checkNoUpdated(true);
+	}
+	createError(message.error || message);
+	toogleLoader(false);
+}
+
 window.addEventListener('message', function(message) {
 	// getting messages from editor or plugin
 
@@ -1948,67 +2048,10 @@ window.addEventListener('message', function(message) {
 			
 			break;
 		case 'Installed':
-			if (!message.guid) {
-				// somethimes we can receive such message
-				toogleLoader(false);
-				return;
-			}
-			if (pendingInstallContext && pendingInstallContext.guid === message.guid)
-				pendingInstallContext = null;
-			plugin = findPlugin(true, message.guid);
-			installed = findPlugin(false, message.guid);
-			if (!installed && plugin) {
-				installedPlugins.push(
-					{
-						baseUrl: plugin.url,
-						guid: message.guid,
-						canRemoved: true,
-						obj: plugin,
-						removed: false
-					}
-				);
-				// sortPlugins(false, true, 'name');
-			} else if (installed) {
-				if (installed.obj.backup) {
-					// нужно обновить список установленных плагинов, чтобы ссылки на ресурсы были правильными
-					sendMessage({ type: 'getInstalled', updateInstalled: true }, '*');
-				}
-				else
-					installed.removed = false;
-			}
-			if (plugin)
-				plugin.bHasUpdate = false;
-
-			changeAfterInstallOrRemove(true, message.guid);
-			trackGoal('plugin_install_success', {
-				plugin_guid: message.guid,
-				plugin_name: getPluginLabelByGuid(message.guid),
-				source: isLocal ? 'desktop' : 'web'
-			});
-			toogleLoader(false);
+			handlePluginInstalled(message);
 			break;
 		case 'Updated':
-			updateCount--;
-			if (!message.guid) {
-				// somethimes we can receive such message
-				if (!updateCount) {
-					checkNoUpdated(true);
-					toogleLoader(false);
-				}
-				return;
-			}
-			installed = findPlugin(false, message.guid);
-			plugin = findPlugin(true, message.guid);
-
-			installed.obj.version = plugin.version;
-			plugin.bHasUpdate = false;
-			elements.spanVersion.innerText = plugin.version;
-			changeAfterInstallOrRemove(true, message.guid);
-
-			if (!updateCount) {
-				checkNoUpdated(true);
-				toogleLoader(false);
-			}
+			handlePluginUpdated(message);
 			break;
 		case 'Removed':
 			if (!message.guid) {
@@ -2061,12 +2104,7 @@ window.addEventListener('message', function(message) {
 			toogleLoader(false);
 			break;
 		case 'Error':
-			if (pendingInstallContext && (!message.guid || message.guid === pendingInstallContext.guid)) {
-				showInstallFailureModal(pendingInstallContext, message.error || message);
-				pendingInstallContext = null;
-			}
-			createError(message.error);
-			toogleLoader(false);
+			handlePluginOperationError(message, '');
 			break;
 		case 'StoreUpdated':
 			toogleLoader(false);
@@ -2132,13 +2170,21 @@ window.addEventListener('message', function(message) {
 function fetchAllPlugins(bFirstRender, bshowMarketplace) {
 	// function for fetching all plugins from config
 	isPluginLoading = true;
-	makeRequest(configUrl, 'GET', null, null, true).then(
-		function(response) {
-			allPlugins = JSON.parse(response);
+	Promise.all([
+		makeRequest(configUrl, 'GET', null, null, true),
+		fetchIntegrityManifest()
+	]).then(
+		function(result) {
+			let response = result[0];
+			allPlugins = JSON.parse(response).map(function(plugin) {
+				let normalized = normalizeMarketplacePluginEntry(plugin);
+				normalized.integrity = integrityPackages[normalized.name] || null;
+				return normalized;
+			});
 			if (installedPlugins)
 				getAllPluginsData(bFirstRender, bshowMarketplace);
 		},
-		function(err) {
+		function() {
 			createError( new Error('Problem with loading markeplace config.') );
 			isPluginLoading = false;
 			showMarketplace();
@@ -2381,7 +2427,7 @@ function getAllPluginsData(bFirstRender, bshowMarketplace) {
 	isPluginLoading = true;
 	let count = 0;
 	let Unloaded = [];
-	let url = isLocal ? OOMarketplaceUrl : ioUrl;
+	let url = marketplaceRootUrl;
 	allPlugins.forEach(function(plugin, i, arr) {
 		let catalogPlugin = normalizeMarketplacePluginEntry(plugin);
 		count++;
@@ -2394,6 +2440,7 @@ function getAllPluginsData(bFirstRender, bshowMarketplace) {
 				config.configUrl = confUrl;
 				config.baseUrl = pluginUrl;
 				config.marketplaceEntry = catalogPlugin;
+				config.integrity = catalogPlugin.integrity || null;
 				arr[i] = config;
 				config.languages = [ getTranslated('English') ];
 				if (shouldLoadPluginLangs) {
@@ -2448,6 +2495,138 @@ function normalizeMarketplacePluginEntry(plugin) {
 	if (plugin && typeof plugin === 'object')
 		return Object.assign({}, plugin);
 	return { name: plugin };
+};
+
+function normalizeIntegrityManifest(payload) {
+	if (!payload || typeof payload !== 'object' || !payload.packages || typeof payload.packages !== 'object')
+		return null;
+	let packages = Object.create(null);
+	Object.keys(payload.packages).forEach(function(key) {
+		let entry = payload.packages[key];
+		if (!entry || typeof entry !== 'object')
+			return;
+		packages[key] = {
+			guid: entry.guid || '',
+			version: entry.version || '',
+			file: entry.file || '',
+			size: Number(entry.size || 0),
+			sha256: String(entry.sha256 || '').toLowerCase()
+		};
+	});
+	return {
+		algorithm: String(payload.algorithm || '').toLowerCase(),
+		generatedAt: payload.generatedAt || '',
+		packages: packages
+	};
+};
+
+function fetchIntegrityManifest() {
+	return makeRequest(integrityUrl, 'GET', null, null, false).then(function(response) {
+		let normalized = normalizeIntegrityManifest(JSON.parse(response));
+		if (!normalized)
+			throw new Error('Unexpected integrity manifest format.');
+		integrityManifest = normalized;
+		integrityPackages = normalized.packages || Object.create(null);
+		return integrityPackages;
+	}).catch(function() {
+		integrityManifest = null;
+		integrityPackages = Object.create(null);
+		return integrityPackages;
+	});
+};
+
+function getPluginIntegrityEntry(pluginConfig) {
+	if (!pluginConfig)
+		return null;
+	let entry = pluginConfig.integrity
+		|| (pluginConfig.marketplaceEntry ? pluginConfig.marketplaceEntry.integrity : null);
+	if (!entry || typeof entry !== 'object' || !entry.file || !entry.sha256)
+		return null;
+	if (!/^[a-f0-9]{64}$/.test(entry.sha256))
+		return null;
+	if (entry.guid && pluginConfig.guid && entry.guid !== pluginConfig.guid)
+		return null;
+	return entry;
+};
+
+function resolvePluginArchiveUrl(pluginConfig) {
+	let entry = getPluginIntegrityEntry(pluginConfig);
+	if (!entry)
+		return '';
+	if (/^https?:\/\//i.test(entry.file))
+		return entry.file;
+	return marketplaceRootUrl + String(entry.file).replace(/^\/+/, '');
+};
+
+function buildDownloadedPluginArchivePath(pluginConfig) {
+	let pluginRootPath = getStorePluginRootPath();
+	let folderName = resolvePluginFolderName(pluginConfig) || 'plugin';
+	return joinNativePath(pluginRootPath, '__r7c_package__' + folderName + '.plugin');
+};
+
+async function verifyPluginArchiveIntegrity(pluginConfig, buffer) {
+	let entry = getPluginIntegrityEntry(pluginConfig);
+	if (!entry)
+		throw new Error('Integrity metadata is missing for this plugin package.');
+	if (entry.size && buffer.byteLength !== Number(entry.size))
+		throw new Error('Plugin package size verification failed.');
+	let actualSha256 = await computeSha256Hex(buffer);
+	if (actualSha256 !== entry.sha256)
+		throw new Error('Plugin package checksum verification failed.');
+	return actualSha256;
+};
+
+async function installVerifiedPluginArchive(pluginConfig) {
+	if (!isLocal || !hasDesktopBridge() || !window.AscDesktopEditor || typeof window.AscDesktopEditor.PluginInstall !== 'function')
+		return false;
+	let entry = getPluginIntegrityEntry(pluginConfig);
+	if (!entry) {
+		if (integrityManifest)
+			throw new Error('Integrity metadata is missing or invalid for this plugin package.');
+		return false;
+	}
+	let packageUrl = resolvePluginArchiveUrl(pluginConfig);
+	if (!packageUrl)
+		return false;
+	let buffer = await fetchArrayBuffer(packageUrl);
+	let actualSha256 = await verifyPluginArchiveIntegrity(pluginConfig, buffer);
+	let packagePath = buildDownloadedPluginArchivePath(pluginConfig);
+	if (existsLocalPath(packagePath)) {
+		try {
+			removeLocalFile(packagePath);
+		} catch (e) {
+		}
+	}
+	writeBinaryFile(packagePath, buffer);
+	let result = window.AscDesktopEditor.PluginInstall(packagePath);
+	if (!result)
+		throw new Error('Problem with plugin installation.');
+	return {
+		file: packagePath,
+		sha256: actualSha256
+	};
+};
+
+async function tryDesktopPackageInstall(message, actionType) {
+	if (!isLocal)
+		return false;
+	try {
+		let result = await installVerifiedPluginArchive(message.config);
+		if (!result)
+			return false;
+		if (actionType === 'update')
+			handlePluginUpdated({ type: 'Updated', guid: message.guid });
+		else
+			handlePluginInstalled({ type: 'Installed', guid: message.guid });
+		sendMessage({ type: 'getInstalled', updateInstalled: true }, '*');
+		return true;
+	} catch (error) {
+		handlePluginOperationError({
+			guid: message.guid,
+			error: { message: error.message }
+		}, actionType === 'update' ? 'update' : '');
+		return true;
+	}
 };
 
 function getDiscussion(config) {
@@ -2800,8 +2979,10 @@ async function onClickInstall(target, event) {
 	});
 	// we should do that because we have some problem when desktop is loading plugin
 	if (isLocal) {
-		setTimeout(function() {
-			sendMessage(message);
+		setTimeout(async function() {
+			let handled = await tryDesktopPackageInstall(message, 'install');
+			if (!handled)
+				sendMessage(message);
 		}, 200);
 	} else {
 		sendMessage(message);
@@ -2845,8 +3026,10 @@ async function onClickUpdate(target, event) {
 	});
 	// we should do that because we have some problem when desktop is loading plugin
 	if (isLocal) {
-		setTimeout(function() {
-			sendMessage(message);
+		setTimeout(async function() {
+			let handled = await tryDesktopPackageInstall(message, 'update');
+			if (!handled)
+				sendMessage(message);
 		}, 200);
 	} else {
 		sendMessage(message);
@@ -2909,6 +3092,21 @@ async function onClickUpdateAll() {
 		return;
 	}
 	updateCount = arr.length;
+	if (isLocal) {
+		for (let i = 0; i < arr.length; i += 1) {
+			let plugin = arr[i];
+			let message = {
+				type : 'update',
+				url : plugin.url,
+				guid : plugin.guid,
+				config : plugin
+			};
+			let handled = await tryDesktopPackageInstall(message, 'update');
+			if (!handled)
+				sendMessage(message);
+		}
+		return;
+	}
 	arr.forEach(function(plugin) {
 		let message = {
 			type : 'update',
@@ -3064,7 +3262,7 @@ function onClickItem() {
 		document.getElementById('div_changelog_preview').innerHTML = '';
 	}
 
-	let pluginUrl = plugin.baseUrl.replace(OOMarketplaceUrl, (OOIO + 'tree/main/') );
+	let pluginUrl = plugin.baseUrl.replace(OOMarketplaceUrl, OOIOTreeUrl);
 	
 	// TODO problem with plugins icons (different margin from top)
 	elements.divSelected.setAttribute('data-guid', guid);
@@ -3242,7 +3440,7 @@ function resolvePluginFolderName(pluginConfig) {
 function buildDeployFallbackUrl(folderName) {
 	if (!folderName)
 		return OOIO;
-	return OOIO + 'tree/main/sdkjs-plugins/content/' + encodeURIComponent(folderName) + '/deploy';
+	return OOIOTreeUrl + 'sdkjs-plugins/content/' + encodeURIComponent(folderName) + '/deploy';
 }
 
 function closeInstallFailureModal() {
