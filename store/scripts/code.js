@@ -40,6 +40,10 @@ const guidMarkeplace = 'asc.{AA2EA9B6-9EC2-415F-9762-634EE8D9A95E}'; // guid mar
 const guidSettings = 'asc.{8D67F3C5-7736-4BAE-A0F2-8C7127DC4BB8}';   // guid settings plugins
 let editorVersion = null;                                            // edior current version
 let loader;                                                          // loader
+const themePreferenceKey = 'pm_theme_preference';
+const legacyThemeOverrideKey = 'pm_theme_override';
+let hostThemeType = detectInitialHostThemeType();                    // theme from editor/browser
+let themePreference = detectThemePreference();                       // system/light/dark
 let themeType = detectThemeType();                                   // current theme
 const lang = detectLanguage();                                       // current language
 const shortLang = lang.split('-')[0];                                // short language
@@ -51,6 +55,9 @@ let timeout = null;                                                  // delay fo
 let defaultBG = themeType == 'light' ? "#f7f7f7" : '#343434';        // default background color for plugin header
 let isResizeOnStart = false;                                         // flag for firs resize on start
 let slideIndex = 1;                                                  // index for slides
+let selectedPluginScreenshotUrls = [];                               // screenshots for selected plugin preview
+let selectedPluginScreenshotIndex = 0;                               // active screenshot in fullscreen mode
+let lastScreenshotTrigger = null;                                    // last clicked screenshot element
 let PsMain = null;                                                   // scroll for list of plugins
 let PsChangelog = null;                                               // scroll for changelog preview
 const proxyUrl = 'https://plugins-services.onlyoffice.com/proxy';    // url to proxy for getting rating
@@ -63,7 +70,6 @@ let scale = {                                                        // current 
 calculateScale();
 const storeLocalConfigUrl = '../config.json';
 const storeRemoteConfigUrl = OOStoreUpdateUrl + 'config.json';
-const themeOverrideKey = 'pm_theme_override';
 const maxCommunityUrl = 'https://max.ru/join/hD88sOjvSS9nBmaEvRMcH1NQF53liVba_iJBngnDnUo';
 const telegramCommunityUrl = 'https://t.me/r7_js';
 const defaultSupportContactUrl = 'https://t.me/datacons';
@@ -158,6 +164,10 @@ function normalizeThemeType(type) {
 	return (type && type.includes('dark')) ? 'dark' : 'light';
 }
 
+function normalizeThemePreference(type) {
+	return (type === 'light' || type === 'dark') ? type : 'system';
+}
+
 function isMarketplaceManagedInstalledPlugin(installed, bIncludeRemoved) {
 	if (!installed)
 		return false;
@@ -166,19 +176,55 @@ function isMarketplaceManagedInstalledPlugin(installed, bIncludeRemoved) {
 	return installed.canRemoved !== false;
 }
 
-function getThemeOverride() {
+function getStoredThemePreference() {
 	try {
-		return localStorage.getItem(themeOverrideKey);
+		return localStorage.getItem(themePreferenceKey);
 	} catch (e) {
 		return null;
 	}
 }
 
-function setThemeOverride(type) {
+function persistThemePreference(type) {
 	try {
-		localStorage.setItem(themeOverrideKey, type);
+		if (type === 'system')
+			localStorage.removeItem(themePreferenceKey);
+		else
+			localStorage.setItem(themePreferenceKey, type);
+		localStorage.removeItem(legacyThemeOverrideKey);
 	} catch (e) {
 	}
+}
+
+function clearLegacyThemeOverride() {
+	try {
+		localStorage.removeItem(legacyThemeOverrideKey);
+	} catch (e) {
+	}
+}
+
+function detectInitialHostThemeType() {
+	let type = getUrlSearchValue("theme-type");
+	if (type)
+		return normalizeThemeType(type);
+	try {
+		if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+			return 'dark';
+		if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches)
+			return 'light';
+	} catch (e) {
+	}
+	return null;
+}
+
+function detectThemePreference() {
+	return normalizeThemePreference(getStoredThemePreference());
+}
+
+function resolveThemeType(nextHostType) {
+	if (themePreference !== 'system')
+		return normalizeThemeType(themePreference);
+	let fallbackType = nextHostType || hostThemeType || detectInitialHostThemeType();
+	return normalizeThemeType(fallbackType || 'dark');
 }
 
 function applyThemeClass() {
@@ -188,10 +234,30 @@ function applyThemeClass() {
 }
 
 function updateThemeToggleUI() {
-	if (!elements.btnThemeLight || !elements.btnThemeDark)
+	if (!elements.btnThemeSystem || !elements.btnThemeLight || !elements.btnThemeDark)
 		return;
-	elements.btnThemeLight.classList.toggle('btn_toggle_active', !themeType.includes('dark'));
-	elements.btnThemeDark.classList.toggle('btn_toggle_active', themeType.includes('dark'));
+	elements.btnThemeSystem.classList.toggle('btn_toggle_active', themePreference === 'system');
+	elements.btnThemeLight.classList.toggle('btn_toggle_active', themePreference === 'light');
+	elements.btnThemeDark.classList.toggle('btn_toggle_active', themePreference === 'dark');
+	elements.btnThemeSystem.setAttribute('aria-pressed', themePreference === 'system' ? 'true' : 'false');
+	elements.btnThemeLight.setAttribute('aria-pressed', themePreference === 'light' ? 'true' : 'false');
+	elements.btnThemeDark.setAttribute('aria-pressed', themePreference === 'dark' ? 'true' : 'false');
+}
+
+function applyCurrentTheme(nextHostType) {
+	if (nextHostType)
+		hostThemeType = normalizeThemeType(nextHostType);
+	themeType = resolveThemeType(hostThemeType);
+	if (window.Asc && window.Asc.plugin && window.Asc.plugin.theme)
+		window.Asc.plugin.theme.type = themeType;
+	applyThemeClass();
+	if (document.body) {
+		if (themeType.includes('light'))
+			document.body.classList.add('white_bg');
+		else
+			document.body.classList.remove('white_bg');
+	}
+	refreshThemeDependentAssets();
 }
 
 function refreshThemeDependentAssets() {
@@ -1538,20 +1604,102 @@ function bindPopupLinkHandling() {
 		elements.welcomeAside.addEventListener('click', onLinkClick);
 }
 
-function setThemeType(nextType, persist) {
-	themeType = normalizeThemeType(nextType);
-	if (window.Asc && window.Asc.plugin && window.Asc.plugin.theme)
-		window.Asc.plugin.theme.type = themeType;
-	applyThemeClass();
-	if (document.body) {
-		if (themeType.includes('light'))
-			document.body.classList.add('white_bg');
-		else
-			document.body.classList.remove('white_bg');
+function getScreenshotLightboxAlt(index) {
+	let pluginName = elements.spanName && elements.spanName.textContent ? elements.spanName.textContent.trim() : 'Plugin';
+	return pluginName + ' screenshot ' + (index + 1);
+}
+
+function syncScreenshotLightboxLabels() {
+	let openLabel = getTranslated('Open screenshot');
+	let prevLabel = getTranslated('Previous screenshot');
+	let nextLabel = getTranslated('Next screenshot');
+	let closeLabel = getTranslated('Close');
+	let screens = document.getElementsByClassName('screen');
+	for (let i = 0; i < screens.length; i++) {
+		screens[i].setAttribute('title', openLabel);
+		screens[i].setAttribute('aria-label', openLabel);
 	}
-	refreshThemeDependentAssets();
+	if (elements.screenshotLightboxClose) {
+		elements.screenshotLightboxClose.title = closeLabel;
+		elements.screenshotLightboxClose.setAttribute('aria-label', closeLabel);
+	}
+	if (elements.screenshotLightboxPrev) {
+		elements.screenshotLightboxPrev.title = prevLabel;
+		elements.screenshotLightboxPrev.setAttribute('aria-label', prevLabel);
+	}
+	if (elements.screenshotLightboxNext) {
+		elements.screenshotLightboxNext.title = nextLabel;
+		elements.screenshotLightboxNext.setAttribute('aria-label', nextLabel);
+	}
+}
+
+function isScreenshotLightboxOpen() {
+	return !!(elements.screenshotLightbox && !elements.screenshotLightbox.classList.contains('hidden'));
+}
+
+function closeScreenshotLightbox() {
+	if (!elements.screenshotLightbox)
+		return;
+	elements.screenshotLightbox.classList.add('hidden');
+	if (document.body)
+		document.body.classList.remove('lightbox-open');
+	if (elements.screenshotLightboxImage) {
+		elements.screenshotLightboxImage.removeAttribute('src');
+		elements.screenshotLightboxImage.setAttribute('alt', '');
+	}
+	if (lastScreenshotTrigger && typeof lastScreenshotTrigger.focus === 'function')
+		lastScreenshotTrigger.focus();
+	lastScreenshotTrigger = null;
+}
+
+function renderScreenshotLightbox() {
+	if (!elements.screenshotLightboxImage)
+		return;
+	let total = selectedPluginScreenshotUrls.length;
+	if (!total) {
+		closeScreenshotLightbox();
+		return;
+	}
+	if (selectedPluginScreenshotIndex >= total)
+		selectedPluginScreenshotIndex = 0;
+	if (selectedPluginScreenshotIndex < 0)
+		selectedPluginScreenshotIndex = total - 1;
+	elements.screenshotLightboxImage.setAttribute('src', selectedPluginScreenshotUrls[selectedPluginScreenshotIndex]);
+	elements.screenshotLightboxImage.setAttribute('alt', getScreenshotLightboxAlt(selectedPluginScreenshotIndex));
+	if (elements.screenshotLightboxCounter)
+		elements.screenshotLightboxCounter.innerHTML = (selectedPluginScreenshotIndex + 1) + ' / ' + total;
+	if (elements.screenshotLightboxPrev)
+		elements.screenshotLightboxPrev.classList.toggle('hidden', total < 2);
+	if (elements.screenshotLightboxNext)
+		elements.screenshotLightboxNext.classList.toggle('hidden', total < 2);
+	currentSlide(selectedPluginScreenshotIndex + 1);
+}
+
+function openScreenshotLightbox(index, trigger) {
+	if (!elements.screenshotLightbox || !selectedPluginScreenshotUrls.length)
+		return;
+	selectedPluginScreenshotIndex = index;
+	lastScreenshotTrigger = trigger || null;
+	renderScreenshotLightbox();
+	elements.screenshotLightbox.classList.remove('hidden');
+	if (document.body)
+		document.body.classList.add('lightbox-open');
+	if (elements.screenshotLightboxClose)
+		elements.screenshotLightboxClose.focus();
+}
+
+function stepScreenshotLightbox(step) {
+	if (selectedPluginScreenshotUrls.length < 2)
+		return;
+	selectedPluginScreenshotIndex += step;
+	renderScreenshotLightbox();
+}
+
+function setThemeType(nextType, persist) {
+	themePreference = normalizeThemePreference(nextType);
 	if (persist)
-		setThemeOverride(themeType);
+		persistThemePreference(themePreference);
+	applyCurrentTheme();
 }
 const languages = [                                                  // list of languages
 	['cs-CZ', 'cs', 'Czech'],
@@ -1599,6 +1747,10 @@ switch (shortLang) {
 		translate["Buy support"] = "Купить поддержку";
 		translate["Reload"] = "Перезагрузить";
 		translate["Telegram"] = "Telegram";
+		translate["Auto"] = "\u0410\u0432\u0442\u043e";
+		translate["Open screenshot"] = "Открыть скриншот";
+		translate["Previous screenshot"] = "Предыдущий скриншот";
+		translate["Next screenshot"] = "Следующий скриншот";
 		break;
 	case 'fr':
 		translate["Loading"] = "Chargement"
@@ -1632,6 +1784,20 @@ switch (shortLang) {
 		break;
 }
 
+function ensureCustomTranslationKeys() {
+	if (!translate["Auto"])
+		translate["Auto"] = shortLang === 'ru' ? '\u0410\u0432\u0442\u043e' : 'Auto';
+	if (!translate["Open screenshot"])
+		translate["Open screenshot"] = shortLang === 'ru' ? 'Открыть скриншот' : 'Open screenshot';
+	if (!translate["Previous screenshot"])
+		translate["Previous screenshot"] = shortLang === 'ru' ? 'Предыдущий скриншот' : 'Previous screenshot';
+	if (!translate["Next screenshot"])
+		translate["Next screenshot"] = shortLang === 'ru' ? 'Следующий скриншот' : 'Next screenshot';
+}
+
+ensureCustomTranslationKeys();
+clearLegacyThemeOverride();
+
 // it's necessary for loader (because it detects theme by this object)
 window.Asc = {
 	plugin : {
@@ -1657,13 +1823,9 @@ window.onload = async function() {
 	styleTheme.type = 'text/css';
 	styleTheme.innerHTML = rule;
 	document.getElementsByTagName('head')[0].appendChild(styleTheme);
-	applyThemeClass();
-	if (themeType.includes('light'))
-		document.body.classList.add('white_bg');
-	else
-		document.body.classList.remove('white_bg');
 	// init element
 	initElemnts();
+	applyCurrentTheme();
 	applyBootstrapLabels();
 	ensurePopupSupportContent();
 	try {
@@ -1770,6 +1932,11 @@ window.onload = async function() {
 			setThemeType('light', true);
 		};
 	}
+	if (elements.btnThemeSystem) {
+		elements.btnThemeSystem.onclick = function() {
+			setThemeType('system', true);
+		};
+	}
 	if (elements.btnThemeDark) {
 		elements.btnThemeDark.onclick = function() {
 			setThemeType('dark', true);
@@ -1829,6 +1996,20 @@ window.onload = async function() {
 	}
 	if (elements.btnStoreUpdateOk)
 		elements.btnStoreUpdateOk.onclick = hideStoreUpdateModal;
+	if (elements.screenshotLightboxBackdrop)
+		elements.screenshotLightboxBackdrop.onclick = closeScreenshotLightbox;
+	if (elements.screenshotLightboxClose)
+		elements.screenshotLightboxClose.onclick = closeScreenshotLightbox;
+	if (elements.screenshotLightboxPrev) {
+		elements.screenshotLightboxPrev.onclick = function() {
+			stepScreenshotLightbox(-1);
+		};
+	}
+	if (elements.screenshotLightboxNext) {
+		elements.screenshotLightboxNext.onclick = function() {
+			stepScreenshotLightbox(1);
+		};
+	}
 	if (elements.storeUpdateOverlay) {
 		elements.storeUpdateOverlay.addEventListener('click', function(event) {
 			if (event.target === elements.storeUpdateOverlay && !closeAfterStoreUpdateModal)
@@ -1836,6 +2017,22 @@ window.onload = async function() {
 		});
 	}
 	document.addEventListener('keydown', function(event) {
+		if (isScreenshotLightboxOpen()) {
+			if (event.key === 'Escape') {
+				closeScreenshotLightbox();
+				return;
+			}
+			if (event.key === 'ArrowLeft') {
+				event.preventDefault();
+				stepScreenshotLightbox(-1);
+				return;
+			}
+			if (event.key === 'ArrowRight') {
+				event.preventDefault();
+				stepScreenshotLightbox(1);
+				return;
+			}
+		}
 		if (event.key === 'Escape' && elements.welcomePopupOverlay && !elements.welcomePopupOverlay.classList.contains('hidden')) {
 			hideWelcomePopup();
 			return;
@@ -2085,22 +2282,12 @@ window.addEventListener('message', function(message) {
 			showStoreUpdateModal(messages.storeUpdateSuccessTitle, messages.storeUpdateSuccessText, true);
 			break;
 		case 'Theme':
-			let override = getThemeOverride();
-			if (override)
-				themeType = normalizeThemeType(override);
-			else if (message.theme.type)
-				themeType = normalizeThemeType(message.theme.type);
-			applyThemeClass();
-			updateThemeToggleUI();
+			if (message.theme && message.theme.type)
+				hostThemeType = normalizeThemeType(message.theme.type);
+			applyCurrentTheme(hostThemeType);
 
 			let rule = '.text-secondary{color:'+message.theme["text-secondary"]+';}\n';
 			rule += 'body{background: var(--pm-bg) !important; color: var(--pm-text) !important;}\n';
-
-			if (themeType.includes('light')) {
-				this.document.getElementsByTagName('body')[0].classList.add('white_bg');
-			} else {
-				this.document.getElementsByTagName('body')[0].classList.remove('white_bg');
-			}
 
 			let styleTheme = document.getElementById('theme_style');
 			if (!styleTheme) {
@@ -2109,8 +2296,6 @@ window.addEventListener('message', function(message) {
 				styleTheme.type = 'text/css';
 				document.getElementsByTagName('head')[0].appendChild(styleTheme);
 			}
-			refreshThemeDependentAssets();
-
 			styleTheme.innerHTML = rule;
 			break;
 		case 'onExternalMouseUp':
@@ -2232,11 +2417,7 @@ function detectLanguage() {
 
 function detectThemeType() {
 	// detect theme or return default
-	let override = getThemeOverride();
-	if (override)
-		return normalizeThemeType(override);
-	let type = getUrlSearchValue("theme-type");
-	return normalizeThemeType(type || 'dark');
+	return resolveThemeType(hostThemeType);
 };
 
 function initElemnts() {
@@ -2259,6 +2440,7 @@ function initElemnts() {
 	elements.btnLicense = document.getElementById('btn_license');
 	elements.settingsModal = document.getElementById('settings_modal');
 	elements.btnSettingsClose = document.getElementById('btn_settings_close');
+	elements.btnThemeSystem = document.getElementById('btn_theme_system');
 	elements.btnThemeLight = document.getElementById('btn_theme_light');
 	elements.btnThemeDark = document.getElementById('btn_theme_dark');
 	elements.removeConfirmOverlay = document.getElementById('remove_confirm_overlay');
@@ -2270,6 +2452,13 @@ function initElemnts() {
 	elements.storeUpdateTitle = document.getElementById('store_update_title');
 	elements.storeUpdateText = document.getElementById('store_update_text');
 	elements.btnStoreUpdateOk = document.getElementById('btn_store_update_ok');
+	elements.screenshotLightbox = document.getElementById('screenshot_lightbox');
+	elements.screenshotLightboxBackdrop = document.getElementById('screenshot_lightbox_backdrop');
+	elements.screenshotLightboxClose = document.getElementById('screenshot_lightbox_close');
+	elements.screenshotLightboxPrev = document.getElementById('screenshot_lightbox_prev');
+	elements.screenshotLightboxNext = document.getElementById('screenshot_lightbox_next');
+	elements.screenshotLightboxImage = document.getElementById('screenshot_lightbox_image');
+	elements.screenshotLightboxCounter = document.getElementById('screenshot_lightbox_counter');
 	elements.r7cFlyout = document.getElementById('r7c-flyout');
 	elements.r7cFlyoutLogo = document.getElementById('r7c-flyout-logo');
 	elements.welcomePopupOverlay = document.getElementById('welcome-popup-overlay');
@@ -2360,6 +2549,13 @@ function applyBootstrapLabels() {
 		elements.btnReload.title = getTranslated('Reload');
 		elements.btnReload.setAttribute('aria-label', getTranslated('Reload'));
 	}
+	if (elements.btnThemeSystem)
+		elements.btnThemeSystem.innerHTML = getTranslated('Auto');
+	if (elements.btnThemeLight)
+		elements.btnThemeLight.innerHTML = getTranslated('Light');
+	if (elements.btnThemeDark)
+		elements.btnThemeDark.innerHTML = getTranslated('Dark');
+	syncScreenshotLightboxLabels();
 }
 
 function toogleLoader(show, text) {
@@ -2925,6 +3121,7 @@ function onClickItem() {
 	let offered = "Ascensio System SIA";
 	let hiddenCounter = 0;
 	let guid = this.getAttribute('data-guid');
+	let selectedPluginName = this.children[1].children[0].innerText;
 	trackGoal('plugin_open_card', {
 		plugin_guid: guid,
 		plugin_name: getPluginLabelByGuid(guid)
@@ -2940,6 +3137,9 @@ function onClickItem() {
 	let currentInstalled = (isMarketplaceView && !isMarketplaceManagedInstalledPlugin(installed)) ? null : installed;
 	let isCommercial = isCommercialPluginConfig(plugin || (currentInstalled ? currentInstalled.obj : null));
 	let discussionUrl = plugin ? plugin.discussionUrl : null;
+	closeScreenshotLightbox();
+	selectedPluginScreenshotUrls = [];
+	selectedPluginScreenshotIndex = 0;
 	
 	if (plugin && plugin.rating) {
 		elements.divRatingLink.removeAttribute('title');
@@ -2999,11 +3199,28 @@ function onClickItem() {
 		let arrScreens = plugin.variations[0].store.screenshots;
 		arrScreens.forEach(function(screenUrl, ind) {
 			let url = plugin.baseUrl + screenUrl;
+			selectedPluginScreenshotUrls.push(url);
+			let screenshotLabel = (selectedPluginName || 'Plugin') + ' screenshot ' + (ind + 1);
 			let container = document.createElement('div');
 			container.className = 'mySlides fade';
+			container.setAttribute('tabindex', '0');
+			container.setAttribute('role', 'button');
+			container.setAttribute('aria-label', screenshotLabel);
+			container.setAttribute('title', screenshotLabel);
+			container.onclick = function() {
+				openScreenshotLightbox(ind, container);
+			};
+			container.onkeydown = function(event) {
+				if (event.key === 'Enter' || event.key === ' ') {
+					event.preventDefault();
+					openScreenshotLightbox(ind, container);
+				}
+			};
 			let screen = document.createElement('img');
 			screen.className = 'screen';
 			screen.setAttribute('src', url);
+			screen.setAttribute('data-screen-index', ind);
+			screen.setAttribute('alt', screenshotLabel);
 			container.appendChild(screen);
 			document.getElementById('div_selected_container').insertBefore(container, elements.arrowPrev);
 			if (arrScreens.length > 1) {
@@ -3019,6 +3236,7 @@ function onClickItem() {
 			elements.arrowPrev.classList.remove('hidden');
 			elements.arrowNext.classList.remove('hidden');
 		}
+		syncScreenshotLightboxLabels();
 		slideIndex = 1;
 		showSlides(1);
 	} else {
@@ -3072,7 +3290,7 @@ function onClickItem() {
 	let tmp = getImageUrl(guid, false, true, 'img_icon');
 	document.getElementById('div_icon_info').style.background = this.firstChild.style.background;
 	elements.imgIcon.setAttribute('src', tmp);
-	elements.spanName.innerHTML = this.children[1].children[0].innerText;
+	elements.spanName.innerHTML = selectedPluginName;
 	elements.spanOffered.innerHTML = plugin.offered || offered;
 	if (typeLabel)
 		elements.spanOffered.innerHTML += ' · ' + typeLabel;
@@ -3145,6 +3363,9 @@ function onClickItem() {
 
 function onClickBack() {
 	// click on left arrow in preview mode
+	closeScreenshotLightbox();
+	selectedPluginScreenshotUrls = [];
+	selectedPluginScreenshotIndex = 0;
 	elements.imgIcon.style.display = 'none';
 	$('.dot').remove();
 	$('.mySlides').remove();
@@ -3424,6 +3645,7 @@ function getTranslation() {
 						function(res) {
 							// console.log('getTranslation: ' + (Date.now() - start));
 							translate = JSON.parse(res);
+							ensureCustomTranslationKeys();
 							isTranslationLoading = false;
 							onTranslate();
 						},
@@ -3557,10 +3779,13 @@ function onTranslate() {
 		elements.btnSettingsClose.title = getTranslated('Close');
 	if (elements.settingsTitle)
 		elements.settingsTitle.innerHTML = getTranslated('Settings');
+	if (elements.btnThemeSystem)
+		elements.btnThemeSystem.innerHTML = getTranslated('Auto');
 	if (elements.btnThemeLight)
 		elements.btnThemeLight.innerHTML = getTranslated('Light');
 	if (elements.btnThemeDark)
 		elements.btnThemeDark.innerHTML = getTranslated('Dark');
+	syncScreenshotLightboxLabels();
 	showMarketplace();
 };
 
