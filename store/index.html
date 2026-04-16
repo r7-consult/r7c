@@ -142,6 +142,7 @@
 					<div class="settings_group">
 						<span class="settings_label">Theme</span>
 						<div class="settings_toggle">
+							<button id="btn_theme_system" class="btn_toggle" type="button">Auto</button>
 							<button id="btn_theme_light" class="btn_toggle" type="button">Light</button>
 							<button id="btn_theme_dark" class="btn_toggle" type="button">Dark</button>
 						</div>
@@ -281,6 +282,24 @@
 				<div class="remove_confirm_actions">
 					<button id="btn_store_update_ok" class="btn_action" type="button">OK</button>
 				</div>
+			</div>
+		</div>
+		<div id="screenshot_lightbox" class="screenshot_lightbox hidden" role="dialog" aria-modal="true" aria-labelledby="screenshot_lightbox_counter">
+			<div id="screenshot_lightbox_backdrop" class="screenshot_lightbox_backdrop"></div>
+			<div class="screenshot_lightbox_dialog">
+				<button id="screenshot_lightbox_close" class="screenshot_lightbox_close" type="button" aria-label="Close" title="Close">
+					<span aria-hidden="true">&times;</span>
+				</button>
+				<button id="screenshot_lightbox_prev" class="screenshot_lightbox_nav screenshot_lightbox_nav_prev hidden" type="button" aria-label="Previous screenshot" title="Previous screenshot">
+					<span aria-hidden="true">&#8249;</span>
+				</button>
+				<div class="screenshot_lightbox_stage">
+					<img id="screenshot_lightbox_image" class="screenshot_lightbox_image" alt="">
+				</div>
+				<button id="screenshot_lightbox_next" class="screenshot_lightbox_nav screenshot_lightbox_nav_next hidden" type="button" aria-label="Next screenshot" title="Next screenshot">
+					<span aria-hidden="true">&#8250;</span>
+				</button>
+				<div id="screenshot_lightbox_counter" class="screenshot_lightbox_counter">1 / 1</div>
 			</div>
 		</div>
 		<div id="div_rating_git" class="hidden"></div>

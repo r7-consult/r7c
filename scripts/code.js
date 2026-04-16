@@ -49,6 +49,20 @@
 		iframe.contentWindow.postMessage(JSON.stringify(message), '*');
 	};
 
+	function buildMarketplaceIframeUrl(pageUrl) {
+		let fallbackUrl = pageUrl + window.location.search;
+		try {
+			let params = new URLSearchParams(window.location.search || '');
+			let currentTheme = window.Asc && window.Asc.plugin && window.Asc.plugin.theme ? window.Asc.plugin.theme.type : '';
+			if (currentTheme)
+				params.set('theme-type', currentTheme);
+			let query = params.toString();
+			return pageUrl + (query ? '?' + query : '');
+		} catch (e) {
+			return fallbackUrl;
+		}
+	}
+
 	function initPlugin() {
 		document.body.appendChild(iframe);
 		// send message that plugin is ready
@@ -62,7 +76,7 @@
 		let divNoInt = document.getElementById('div_noIternet');
 		let style = document.getElementsByTagName('head')[0].lastChild;
 		let pageUrl = marketplaceURl;
-		iframe.src = pageUrl + window.location.search;
+		iframe.src = buildMarketplaceIframeUrl(pageUrl);
 		iframe.onload = function() {
 			BFrameReady = true;
 			if (BPluginReady) {
