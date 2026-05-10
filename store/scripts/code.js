@@ -18,15 +18,31 @@
 
 const version = '1.0.8';                                             // version of store (will change it when update something in store)
 let start = Date.now();
+const defaultCatalogBaseUrl = 'https://raw.githubusercontent.com/r7-consult/r7c-packages/main/';
+const defaultManagerUpdateBaseUrl = 'https://raw.githubusercontent.com/r7-consult/r7c/main/';
+const defaultRepositoryUrl = 'https://github.com/r7-consult/r7c-packages/';
+const defaultConnectivityCheckUrl = 'https://onlyoffice.github.io/store/translations/langs.json';
+const defaultRatingProxyUrl = 'https://plugins-services.onlyoffice.com/proxy';
+const r7cRuntimeConfig = resolveR7CRuntimeConfig({
+	catalogBaseUrl: defaultCatalogBaseUrl,
+	managerUpdateBaseUrl: defaultManagerUpdateBaseUrl,
+	repositoryUrl: defaultRepositoryUrl,
+	connectivityCheckUrl: defaultConnectivityCheckUrl,
+	enableRatings: true,
+	ratingProxyUrl: defaultRatingProxyUrl
+});
+const OOMarketplaceUrl = normalizeConfigBaseUrl(r7cRuntimeConfig.catalogBaseUrl);            // url to store (for local version store in desktop)
+const OOStoreUpdateUrl = normalizeConfigBaseUrl(r7cRuntimeConfig.managerUpdateBaseUrl);      // url to store plugin update source
+const OOIO = normalizeConfigBaseUrl(r7cRuntimeConfig.repositoryUrl);                         // url to repository (for links and discussions)
+const connectivityCheckUrl = r7cRuntimeConfig.connectivityCheckUrl || defaultConnectivityCheckUrl;
+const enableRatings = r7cRuntimeConfig.enableRatings !== false;
+const proxyUrl = r7cRuntimeConfig.ratingProxyUrl || defaultRatingProxyUrl;    // url to proxy for getting rating
+const discussionsUrl = OOIO + 'discussions/';                        // discussions url
 const isLocal = ( (window.AscDesktopEditor !== undefined) && (window.location.protocol.indexOf('file') !== -1) ); // desktop detecting
 let isPluginLoading = false;                                         // flag plugins loading
 let isOnline = true;                                                 // flag internet connection
 isLocal && checkInternet();                                          // check internet connection (only for desktop)
 let interval = null;                                                 // interval for checking internet connection (if it doesn't work on launch)
-const OOMarketplaceUrl = 'https://raw.githubusercontent.com/r7-consult/r7c-packages/main/';            // url to store (for local version store in desktop)
-const OOStoreUpdateUrl = 'https://raw.githubusercontent.com/r7-consult/r7c/main/';                        // url to store plugin update source
-const OOIO = 'https://github.com/r7-consult/r7c-packages/';                       // url to github repository (for links and discussions)
-const discussionsUrl = OOIO + 'discussions/';                        // discussions url
 let searchTimeout = null;                                            // timeot for search
 let founded = [];                                                    // last founded elemens (for not to redraw if a result is the same)
 let catFiltred = [];                                                 // plugins are filtred by caterogy (used for search)
@@ -60,7 +76,6 @@ let selectedPluginScreenshotIndex = 0;                               // active s
 let lastScreenshotTrigger = null;                                    // last clicked screenshot element
 let PsMain = null;                                                   // scroll for list of plugins
 let PsChangelog = null;                                               // scroll for changelog preview
-const proxyUrl = 'https://plugins-services.onlyoffice.com/proxy';    // url to proxy for getting rating
 const supportedScaleValues = [1, 1.25, 1.5, 1.75, 2];                // supported scale
 let scale = {                                                        // current scale
 	percent  : "100%",                                               // current scale in percent
@@ -73,10 +88,7 @@ const storeRemoteConfigUrl = OOStoreUpdateUrl + 'config.json';
 const maxCommunityUrl = 'https://max.ru/join/hD88sOjvSS9nBmaEvRMcH1NQF53liVba_iJBngnDnUo';
 const telegramCommunityUrl = 'https://t.me/r7_js';
 const defaultSupportContactUrl = 'https://t.me/datacons';
-const contentRemoteBases = [
-	'https://raw.githubusercontent.com/r7-consult/r7c/main/',
-	'https://raw.githubusercontent.com/r7-consult/r7c/master/'
-];
+const contentRemoteBases = [OOStoreUpdateUrl];
 const shouldLoadPluginLangs = false;
 const contentLocalBase = '../';
 let storeLocalVersion = '';
@@ -174,6 +186,78 @@ function isMarketplaceManagedInstalledPlugin(installed, bIncludeRemoved) {
 	if (installed.removed)
 		return !!bIncludeRemoved && installed.canRemoved !== false;
 	return installed.canRemoved !== false;
+}
+
+function normalizeConfigBaseUrl(value) {
+	let url = String(value || '').trim();
+	if (url && url[url.length - 1] !== '/')
+		url += '/';
+	return url;
+}
+
+function parseRuntimeBoolean(value, fallbackValue) {
+	if (typeof value === 'boolean')
+		return value;
+	if (value === undefined || value === null || value === '')
+		return fallbackValue;
+	let normalized = String(value).trim().toLowerCase();
+	if (['1', 'true', 'yes', 'on'].indexOf(normalized) !== -1)
+		return true;
+	if (['0', 'false', 'no', 'off'].indexOf(normalized) !== -1)
+		return false;
+	return fallbackValue;
+}
+
+function getRuntimeSearchValue(names) {
+	try {
+		let params = new URLSearchParams(window.location.search || '');
+		for (let i = 0; i < names.length; i++) {
+			if (params.has(names[i]))
+				return params.get(names[i]);
+		}
+	} catch (e) {
+	}
+	return undefined;
+}
+
+function applyRuntimeValue(config, key, value) {
+	if (value === undefined || value === null || value === '')
+		return false;
+	if (key === 'enableRatings')
+		config[key] = parseRuntimeBoolean(value, config[key]);
+	else
+		config[key] = String(value).trim();
+	return true;
+}
+
+function resolveR7CRuntimeConfig(defaults) {
+	let config = Object.assign({}, defaults);
+	let aliases = {
+		catalogBaseUrl: ['r7cCatalogBaseUrl', 'catalogBaseUrl', 'catalog-base-url', 'catalog_base_url'],
+		managerUpdateBaseUrl: ['r7cManagerUpdateBaseUrl', 'managerUpdateBaseUrl', 'manager-update-base-url', 'manager_update_base_url'],
+		repositoryUrl: ['r7cRepositoryUrl', 'repositoryUrl', 'repository-url', 'repository_url'],
+		connectivityCheckUrl: ['r7cConnectivityCheckUrl', 'connectivityCheckUrl', 'connectivity-check-url', 'connectivity_check_url'],
+		enableRatings: ['r7cEnableRatings', 'enableRatings', 'enable-ratings', 'enable_ratings'],
+		ratingProxyUrl: ['r7cRatingProxyUrl', 'ratingProxyUrl', 'rating-proxy-url', 'rating_proxy_url']
+	};
+	let windowConfig = {};
+	let hasRuntimeOverrides = false;
+	try {
+		if (window.R7C_ENTERPRISE_CONFIG && typeof window.R7C_ENTERPRISE_CONFIG === 'object')
+			windowConfig = window.R7C_ENTERPRISE_CONFIG;
+	} catch (e) {
+		windowConfig = {};
+	}
+	Object.keys(aliases).forEach(function(key) {
+		if (applyRuntimeValue(config, key, windowConfig[key]))
+			hasRuntimeOverrides = true;
+	});
+	Object.keys(aliases).forEach(function(key) {
+		if (applyRuntimeValue(config, key, getRuntimeSearchValue(aliases[key])))
+			hasRuntimeOverrides = true;
+	});
+	config.hasRuntimeOverrides = hasRuntimeOverrides;
+	return config;
 }
 
 function getStoredThemePreference() {
@@ -1809,7 +1893,7 @@ window.Asc = {
 
 const pos = location.href.indexOf('store/index.html'); // position for make substring
 const ioUrl = location.href.substring(0, pos);         // real IO URL
-const configUrl = (isLocal ? OOMarketplaceUrl : location.href.substring(0, pos)) + 'store/config.json';
+const configUrl = ((isLocal || r7cRuntimeConfig.hasRuntimeOverrides) ? OOMarketplaceUrl : location.href.substring(0, pos)) + 'store/config.json';
 
 // get translation file
 getTranslation();
@@ -2577,7 +2661,7 @@ function getAllPluginsData(bFirstRender, bshowMarketplace) {
 	isPluginLoading = true;
 	let count = 0;
 	let Unloaded = [];
-	let url = isLocal ? OOMarketplaceUrl : ioUrl;
+	let url = (isLocal || r7cRuntimeConfig.hasRuntimeOverrides) ? OOMarketplaceUrl : ioUrl;
 	allPlugins.forEach(function(plugin, i, arr) {
 		let catalogPlugin = normalizeMarketplacePluginEntry(plugin);
 		count++;
@@ -2614,7 +2698,7 @@ function getAllPluginsData(bFirstRender, bshowMarketplace) {
 						}
 					);
 				}
-				if (catalogPlugin.discussion) {
+				if (enableRatings && catalogPlugin.discussion) {
 					discussionCount++;
 					config.discussionUrl = discussionsUrl + catalogPlugin.discussion;
 					getDiscussion(config);
@@ -4286,7 +4370,7 @@ function onClickLearnMore(target, event) {
 
 function checkInternet() {
 	// url for check internet connection
-	let url = 'https://onlyoffice.github.io/store/translations/langs.json';
+	let url = connectivityCheckUrl;
 	makeRequest(url, 'GET', null, null, true).then(
 		function() {
 			isOnline = true;

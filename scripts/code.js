@@ -17,6 +17,8 @@
  */
 (function(window, undefined) {
 	const isLocal = ( (window.AscDesktopEditor !== undefined) && (window.location.protocol.indexOf('file') !== -1) );
+	const defaultConnectivityCheckUrl = 'https://onlyoffice.github.io/store/translations/langs.json';
+	const connectivityCheckUrl = resolveR7CConnectivityCheckUrl(defaultConnectivityCheckUrl);
 	let interval = null;
 	let errTimeout = null;
 	let loader = null;
@@ -201,10 +203,40 @@
 			label.innerHTML = window.Asc.plugin.tr(label.innerHTML);
 	};
 
+	function getRuntimeSearchValue(names) {
+		try {
+			let params = new URLSearchParams(window.location.search || '');
+			for (let i = 0; i < names.length; i++) {
+				if (params.has(names[i]))
+					return params.get(names[i]);
+			}
+		} catch (e) {
+		}
+		return undefined;
+	}
+
+	function resolveR7CConnectivityCheckUrl(defaultUrl) {
+		let url = defaultUrl;
+		try {
+			if (window.R7C_ENTERPRISE_CONFIG && window.R7C_ENTERPRISE_CONFIG.connectivityCheckUrl)
+				url = String(window.R7C_ENTERPRISE_CONFIG.connectivityCheckUrl).trim();
+		} catch (e) {
+		}
+		let paramValue = getRuntimeSearchValue([
+			'r7cConnectivityCheckUrl',
+			'connectivityCheckUrl',
+			'connectivity-check-url',
+			'connectivity_check_url'
+		]);
+		if (paramValue)
+			url = String(paramValue).trim();
+		return url || defaultUrl;
+	}
+
 	function checkInternet(bSetTimeout) {
 		try {
 			let xhr = new XMLHttpRequest();
-			let url = 'https://onlyoffice.github.io/store/translations/langs.json';
+			let url = connectivityCheckUrl;
 			xhr.open('GET', url, true);
 			
 			xhr.onload = function () {
